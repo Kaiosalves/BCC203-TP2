@@ -15,7 +15,7 @@ class File {
     ~File();
 
     std::array<Item, PAGE_SIZE> GetNextPage();
-
+    bool GetNextItem(Item &out);
     std::string path() const;
     std::filesystem::file_time_type lastModification() const;
     uint64_t size() const;

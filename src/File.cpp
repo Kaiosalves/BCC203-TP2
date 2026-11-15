@@ -65,7 +65,13 @@ std::array<Item, PAGE_SIZE> File::GetNextPage() {
 
     return page;
 }
+bool File::GetNextItem(Item &out) {
+    if(file_.eof())
+        return false;
 
+    this->file_.read(reinterpret_cast<char*>(&out), sizeof(Item));
+    return true;
+}
 std::string File::path() const { return this->path_; }
 
 std::filesystem::file_time_type File::lastModification() const {
