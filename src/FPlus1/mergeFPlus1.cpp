@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <exception>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -13,43 +14,6 @@
 #include "File.hpp"
 #include "Item.hpp"
 #include "Tape.hpp"
-
-namespace {
-
-// Remove espaços no fim do campo.
-std::string TrimRight(const char *data, std::size_t size) {
-    std::string text(data, size);
-    const auto last = text.find_last_not_of(" \0", std::string::npos, 2);
-    text.erase(last == std::string::npos ? 0 : last + 1);
-    return text;
-}
-
-// Formata um registro para exibição.
-std::string FormatItem(const Item &item) {
-    char head[64];
-    std::snprintf(head, sizeof(head), "%08ld %5.1f %.2s ",
-                  item.registrationNumber, static_cast<double>(item.grade),
-                  item.state.data());
-    return std::string(head) + TrimRight(item.city.data(), item.city.size()) +
-           " | " + TrimRight(item.degree.data(), item.degree.size());
-}
-
-// Mostra os registros de entrada e rebobina o arquivo para a ordenação.
-void PrintInput(const std::shared_ptr<File> &file) {
-    std::cout << "--- Dados a serem ordenados (" << file->quantity()
-              << " registros) ---\n";
-    while (!file->eof()) {
-        const auto page = file->GetNextPage();
-        const uint64_t count = file->lastPageCount();
-        for (uint64_t i = 0; i < count; ++i) {
-            std::cout << FormatItem(page[i]) << '\n';
-        }
-    }
-    std::cout << std::flush;
-    file->Rewind();
-}
-
-}  // namespace
 
 BalancedMergeFPlus1::BufferedTape::BufferedTape()
     : tape(std::make_unique<Tape>()) {}
@@ -154,6 +118,13 @@ bool BalancedMergeFPlus1::AnyInputHasRun() const {
 
 // Gera blocos ordenados por seleção por substituição.
 void BalancedMergeFPlus1::GenerateRuns() {
+    struct MetricsScope {
+        File &file;
+        ~MetricsScope() { file.SetRecordMetrics(false); }
+    };
+    this->file_->SetRecordMetrics(true);
+    const MetricsScope metricsGuard{*this->file_};
+
     this->file_->Rewind();
 
     std::array<Item, PAGE_SIZE> page{};
@@ -344,50 +315,81 @@ void BalancedMergeFPlus1::Sort() {
     const auto p2End = std::chrono::steady_clock::now();
     this->phase2TimeMs_ =
         std::chrono::duration<double, std::milli>(p2End - p2Start).count();
+
+    this->WriteResultToBinary();
+}
+
+void BalancedMergeFPlus1::WriteResultToBinary() {
+    if (this->result_ == nullptr) {
+        return;
+    }
+
+    this->result_->tape->SetRecordMetrics(false);
+    this->result_->Rewind();
+
+    this->file_->CloseStream();
+    std::ofstream out(this->file_->binaryPath(),
+                      std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) {
+        throw std::runtime_error(
+            "Falha ao abrir arquivo binário intermediário para escrita: " +
+            this->file_->binaryPath());
+    }
+
+    std::array<Item, PAGE_SIZE> buffer{};
+    std::size_t bufPos = 0;
+    Item item{};
+
+    while (this->result_->ReadRecord(item)) {
+        buffer[bufPos++] = item;
+        if (bufPos == PAGE_SIZE) {
+            out.write(reinterpret_cast<const char *>(buffer.data()),
+                      static_cast<std::streamsize>(bufPos * sizeof(Item)));
+            if (!out) {
+                throw std::runtime_error(
+                    "Falha ao gravar resultado ordenado no arquivo binário");
+            }
+            bufPos = 0;
+        }
+    }
+
+    if (bufPos > 0) {
+        out.write(reinterpret_cast<const char *>(buffer.data()),
+                  static_cast<std::streamsize>(bufPos * sizeof(Item)));
+        if (!out) {
+            throw std::runtime_error(
+                "Falha ao gravar resultado ordenado no arquivo binário");
+        }
+    }
+
+    out.flush();
+    if (!out) {
+        throw std::runtime_error(
+            "Falha ao finalizar gravação do arquivo binário intermediário");
+    }
+    out.close();
+
+    this->result_->tape->SetRecordMetrics(true);
+    this->file_->ReopenStream();
 }
 
 bool BalancedMergeFPlus1::CheckAndShowResult(bool print) {
     if (this->result_ == nullptr) {
         return false;
     }
-
-    // A leitura de conferência não entra nas estatísticas.
-    this->result_->tape->SetRecordMetrics(false);
-    this->result_->Rewind();
-
-    if (print) {
-        std::cout << "--- Resultado da ordenação ---\n";
-    }
-
-    Item item{};
-    Item previous{};
-    uint64_t count = 0;
-    bool ordered = true;
-
-    while (this->result_->ReadRecord(item)) {
-        if (count > 0 && item.grade < previous.grade) {
-            ordered = false;
-        }
-        if (print) {
-            std::cout << FormatItem(item) << '\n';
-        }
-        previous = item;
-        ++count;
-    }
-    if (print) {
-        std::cout << std::flush;
-    }
-
-    this->result_->tape->SetRecordMetrics(true);
-    return ordered && count == this->file_->quantity();
+    return this->file_->VerifySorted(print);
 }
 
 int RunMethod2(const std::shared_ptr<File> &file) {
     try {
+        if (file == nullptr) {
+            throw std::invalid_argument("Arquivo de entrada inválido");
+        }
+
         const bool print = Log::enableInfo;  // opção -P
 
         if (print) {
-            PrintInput(file);
+            file->PrintContents();
         }
 
         BalancedMergeFPlus1 sorter(file);
@@ -402,6 +404,9 @@ int RunMethod2(const std::shared_ptr<File> &file) {
                        "ficou ordenado corretamente");
             return -1;
         }
+
+        const std::string outputPath = file->ConvertBinaryToText();
+        Log::Info("Arquivo texto final ordenado gerado em: " + outputPath);
 
         const uint64_t totalReads = phase1.diskReads + phase2.diskReads;
         const uint64_t totalWrites = phase1.diskWrites + phase2.diskWrites;

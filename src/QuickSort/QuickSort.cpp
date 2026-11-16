@@ -3,124 +3,12 @@
 #include <chrono>
 #include <cstdio>
 #include <exception>
-#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
 
 #include "Common.hpp"
-
-namespace {
-
-std::string TrimRight(const char *data, std::size_t size) {
-    std::string text(data, size);
-    const auto last = text.find_last_not_of(" \0", std::string::npos, 2);
-    text.erase(last == std::string::npos ? 0 : last + 1);
-    return text;
-}
-
-std::string FormatItem(const Item &item) {
-    char head[64];
-    std::snprintf(head, sizeof(head), "%08ld %5.1f %.2s ",
-                  item.registrationNumber, static_cast<double>(item.grade),
-                  item.state.data());
-    return std::string(head) + TrimRight(item.city.data(), item.city.size()) +
-           " | " + TrimRight(item.degree.data(), item.degree.size());
-}
-
-void PrintInput(const std::shared_ptr<File> &file) {
-    std::cout << "--- Dados a serem ordenados (" << file->quantity()
-              << " registros) ---\n";
-    while (!file->eof()) {
-        const auto page = file->GetNextPage();
-        const uint64_t count = file->lastPageCount();
-        for (uint64_t i = 0; i < count; ++i) {
-            std::cout << FormatItem(page[i]) << '\n';
-        }
-    }
-    std::cout << std::flush;
-    file->Rewind();
-}
-
-struct TempBinaryFileGuard {
-    std::filesystem::path path;
-    ~TempBinaryFileGuard() {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
-    }
-};
-
-void CopyFileToTempBinary(const std::shared_ptr<File> &file,
-                          const std::filesystem::path &tempPath) {
-    file->Rewind();
-    std::ofstream out(tempPath, std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) {
-        throw std::runtime_error(
-            "Falha ao criar arquivo temporário do Quicksort Externo");
-    }
-
-    uint64_t copied = 0;
-    while (!file->eof() && copied < file->quantity()) {
-        const auto page = file->GetNextPage();
-        const uint64_t count = file->lastPageCount();
-        if (count == 0) {
-            break;
-        }
-        out.write(reinterpret_cast<const char *>(page.data()),
-                  static_cast<std::streamsize>(count * sizeof(Item)));
-        if (!out) {
-            throw std::runtime_error(
-                "Falha ao gravar arquivo temporário do Quicksort Externo");
-        }
-        Metrics::RecordDiskWrite();
-        copied += count;
-    }
-
-    if (copied < file->quantity()) {
-        throw std::runtime_error("O arquivo de entrada possui apenas " +
-                                 std::to_string(copied) +
-                                 " registros, mas foram pedidos " +
-                                 std::to_string(file->quantity()));
-    }
-}
-
-bool VerifyAndShowBinaryResult(const std::filesystem::path &binPath,
-                               uint64_t quantity, bool print) {
-    std::ifstream in(binPath, std::ios::binary);
-    if (!in.is_open()) {
-        return false;
-    }
-
-    if (print) {
-        std::cout << "--- Resultado da ordenação ---\n";
-    }
-
-    Item item{};
-    Item previous{};
-    uint64_t count = 0;
-    bool ordered = true;
-
-    while (count < quantity &&
-           in.read(reinterpret_cast<char *>(&item), sizeof(Item))) {
-        if (count > 0 && item.grade < previous.grade) {
-            ordered = false;
-        }
-        if (print) {
-            std::cout << FormatItem(item) << '\n';
-        }
-        previous = item;
-        ++count;
-    }
-
-    if (print) {
-        std::cout << std::flush;
-    }
-
-    return ordered && count == quantity;
-}
-
-}  // namespace
 
 void QuickSortExterno::Ordenar(const std::string &binFilePath, int quantity) {
     std::fstream file(binFilePath,
@@ -139,17 +27,11 @@ void QuickSortExterno::Ordenar(const std::shared_ptr<File> &file) {
         throw std::invalid_argument("Arquivo de entrada inválido");
     }
 
-    std::filesystem::create_directories("./tmp");
-    const std::string tag = std::to_string(
-        std::chrono::steady_clock::now().time_since_epoch().count());
-    const TempBinaryFileGuard tempGuard{"./tmp/quicksort_" + tag + ".bin"};
-
+    file->CloseStream();
     Metrics::Reset();
-    Metrics::SetPhase(Phase::Preprocessing);
-    CopyFileToTempBinary(file, tempGuard.path);
-
     Metrics::SetPhase(Phase::Search);
-    Ordenar(tempGuard.path.string(), static_cast<int>(file->quantity()));
+    Ordenar(file->binaryPath(), static_cast<int>(file->quantity()));
+    file->ReopenStream();
 }
 
 int QuickSortExterno::Run(const std::shared_ptr<File> &file) {
@@ -160,42 +42,35 @@ int QuickSortExterno::Run(const std::shared_ptr<File> &file) {
 
         const bool print = Log::enableInfo;
         if (print) {
-            PrintInput(file);
+            file->PrintContents();
         }
 
-        std::filesystem::create_directories("./tmp");
-        const std::string tag = std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count());
-        const TempBinaryFileGuard tempGuard{"./tmp/quicksort_" + tag + ".bin"};
-
         Metrics::Reset();
-        Metrics::SetPhase(Phase::Preprocessing);
+        file->CloseStream();
 
-        const auto p1Start = std::chrono::steady_clock::now();
-        CopyFileToTempBinary(file, tempGuard.path);
-        const auto p1End = std::chrono::steady_clock::now();
-        const double phase1TimeMs =
-            std::chrono::duration<double, std::milli>(p1End - p1Start).count();
-
-        Log::Info("Arquivo binário temporário preparado para Quicksort Externo");
+        constexpr double phase1TimeMs = 0.0;
 
         Metrics::SetPhase(Phase::Search);
         const auto p2Start = std::chrono::steady_clock::now();
-        Ordenar(tempGuard.path.string(), static_cast<int>(file->quantity()));
+        Ordenar(file->binaryPath(), static_cast<int>(file->quantity()));
         const auto p2End = std::chrono::steady_clock::now();
         const double phase2TimeMs =
             std::chrono::duration<double, std::milli>(p2End - p2Start).count();
 
+        file->ReopenStream();
+
         const PhaseMetrics phase1 = Metrics::Preprocessing();
         const PhaseMetrics phase2 = Metrics::Search();
 
-        const bool ok =
-            VerifyAndShowBinaryResult(tempGuard.path, file->quantity(), print);
+        const bool ok = file->VerifySorted(print);
         if (!ok) {
             Log::Error("A verificação do resultado falhou: o arquivo não "
                        "ficou ordenado corretamente");
             return -1;
         }
+
+        const std::string outputPath = file->ConvertBinaryToText();
+        Log::Info("Arquivo texto final ordenado gerado em: " + outputPath);
 
         const uint64_t totalReads = phase1.diskReads + phase2.diskReads;
         const uint64_t totalWrites = phase1.diskWrites + phase2.diskWrites;

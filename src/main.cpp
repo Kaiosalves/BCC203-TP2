@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <memory>
 
@@ -89,8 +90,13 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    std::shared_ptr<File> const file =
-        std::make_shared<File>(filePath.string(), quantity);
+    std::shared_ptr<File> file;
+    try {
+        file = std::make_shared<File>(filePath.string(), quantity);
+    } catch (const std::exception &e) {
+        Log::Error(e.what());
+        return -1;
+    }
 
     switch (static_cast<MethodType>(methodValue)) {
     case BalancedMerge2F:

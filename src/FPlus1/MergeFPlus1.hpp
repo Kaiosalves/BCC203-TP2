@@ -68,6 +68,7 @@ class BalancedMergeFPlus1 {
     void GenerateRuns();
     void MergePass();
     void Redistribute();
+    void WriteResultToBinary();
     bool AnyInputHasRun() const;
     static void ReadOrThrow(BufferedTape &tape, Item &item);
 
