@@ -36,20 +36,6 @@
       '';
     };
 
-    generate = {
-      description = "Generate binary files of Items using the generator target";
-      exec = ''
-        [ -f build/CMakeCache.txt ] || cmake -B build -S .
-        cmake --build build --target generator
-        mkdir -p tmp
-        if [ $# -eq 0 ]; then
-          ./build/generator -o tmp
-        else
-          ./build/generator "$@"
-        fi
-      '';
-    };
-
     format = {
       description = "Format C++ source and header files using clang-format via CMake";
       exec = ''
