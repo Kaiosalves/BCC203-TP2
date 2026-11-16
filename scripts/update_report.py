@@ -63,13 +63,24 @@ def load_csv(csv_path: Path) -> dict[tuple[int, str, int], dict[str, str]]:
     return records
 
 
-def build_metric_cells(row: dict[str, str]) -> list[str]:
-    """Return the 10 formatted LaTeX metric cells for a benchmark row."""
+def build_metric_cells(row: dict[str, str], alg: int) -> list[str]:
+    """Return the formatted LaTeX metric cells for a benchmark row."""
+    num_cols = 6 if alg == 3 else 10
     status = row.get("status", "").strip().lower()
     if status == "timeout":
-        return [r"\texttt{Timeout}"] * 10
+        return [r"\texttt{Timeout}"] * num_cols
     if status == "error":
-        return [r"\texttt{Erro}"] * 10
+        return [r"\texttt{Erro}"] * num_cols
+
+    if alg == 3:
+        return [
+            format_ms(row.get("phase2_time_p50_ms", "")),
+            format_ms(row.get("phase2_time_p75_ms", "")),
+            format_ms(row.get("phase2_time_p99_ms", "")),
+            format_int_br(row.get("phase2_reads_p50", "")),
+            format_int_br(row.get("phase2_writes_p50", "")),
+            format_int_br(row.get("comparisons_p50", "")),
+        ]
 
     return [
         format_ms(row.get("phase1_time_p50_ms", "")),
@@ -109,7 +120,7 @@ def update_tex_content(tex_content: str, records: dict[tuple[int, str, int], dic
                 qty = int(qty_str.replace(".", ""))
                 record = records.get((current_alg, sit_name, qty))
                 if record is not None:
-                    cells = build_metric_cells(record)
+                    cells = build_metric_cells(record, current_alg)
                     newline = "\n" if line.endswith("\n") else ""
                     new_line = (
                         f"{indent}{sit_name}{middle}{qty_str} & "

@@ -61,6 +61,7 @@ int RunSortMethod(
                   << ",\"phase1_writes\":" << phase1.diskWrites
                   << ",\"phase2_time_ms\":" << result.phase2TimeMs
                   << ",\"phase2_reads\":" << phase2.diskReads
+                  << ",\"phase2_writes\":" << phase2.diskWrites
                   << ",\"comparisons\":" << totalComparisons << "}\n";
         return 0;
     } catch (const std::exception &e) {

@@ -54,6 +54,7 @@ CSV_FIELDS = [
     "phase2_time_p75_ms",
     "phase2_time_p99_ms",
     "phase2_reads_p50",
+    "phase2_writes_p50",
     "comparisons_p50",
 ]
 
@@ -157,6 +158,7 @@ def parse_program_output(output: str, elapsed_ms: float) -> dict[str, float | No
                         "phase1_writes": _to_float(data.get("phase1_writes")),
                         "phase2_time_ms": p2_time if p2_time is not None else elapsed_ms,
                         "phase2_reads": _to_float(data.get("phase2_reads")),
+                        "phase2_writes": _to_float(data.get("phase2_writes")),
                         "comparisons": _to_float(data.get("comparisons")),
                     }
             except json.JSONDecodeError:
@@ -200,6 +202,13 @@ def parse_program_output(output: str, elapsed_ms: float) -> dict[str, float | No
             r"(?:disk\s*)?reads?\s*[:=]\s*([0-9]+)",
         ],
     )
+    p2_writes = _extract_number(
+        output,
+        [
+            r"phase2_writes\s*[:=]\s*([0-9]+)",
+            r"(?:merge|recursion|phase\s*2)\s*(?:disk\s*)?writes?\s*[:=]\s*([0-9]+)",
+        ],
+    )
     comparisons = _extract_number(
         output,
         [
@@ -214,6 +223,7 @@ def parse_program_output(output: str, elapsed_ms: float) -> dict[str, float | No
         "phase1_writes": p1_writes,
         "phase2_time_ms": p2_time if p2_time is not None else elapsed_ms,
         "phase2_reads": p2_reads,
+        "phase2_writes": p2_writes,
         "comparisons": comparisons,
     }
 
@@ -250,6 +260,7 @@ def run_single_benchmark(
     p1_writes: list[float] = []
     p2_times: list[float] = []
     p2_reads: list[float] = []
+    p2_writes: list[float] = []
     comparisons: list[float] = []
 
     status = "ok"
@@ -298,6 +309,8 @@ def run_single_benchmark(
             p2_times.append(metrics["phase2_time_ms"])
         if metrics["phase2_reads"] is not None:
             p2_reads.append(metrics["phase2_reads"])
+        if metrics["phase2_writes"] is not None:
+            p2_writes.append(metrics["phase2_writes"])
         if metrics["comparisons"] is not None:
             comparisons.append(metrics["comparisons"])
 
@@ -322,6 +335,7 @@ def run_single_benchmark(
         "phase2_time_p75_ms": fmt_float(percentile(p2_times, 75)),
         "phase2_time_p99_ms": fmt_float(percentile(p2_times, 99)),
         "phase2_reads_p50": fmt_int(percentile(p2_reads, 50)),
+        "phase2_writes_p50": fmt_int(percentile(p2_writes, 50)),
         "comparisons_p50": fmt_int(percentile(comparisons, 50)),
     }
 

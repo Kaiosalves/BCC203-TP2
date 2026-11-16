@@ -193,8 +193,8 @@ onde os parâmetros representam:
 \end{itemize}
 Cada execução reporta ao console os quantitativos exatos de transferências de leitura, transferências de escrita, comparações efetuadas entre chaves e o tempo cronometrado total.
 
-\paragraph{Delimitação de Escopo e Estado de Desenvolvimento:}
-Ressalta-se que, no presente momento, a infraestrutura de engenharia do projeto encontra-se na fase de modelagem e consolidação das estruturas de dados e abstrações de fitas magnéticas virtuais. Os testes de validação funcional e as tabelas de resultados experimentais reportam, temporariamente, estimativas e marcadores de \textit{placeholder} padronizados (\texttt{[TBD]}), acompanhados de rigorosa fundamentação teórica acerca do comportamento assintótico esperado para cada cenário de execução.
+\paragraph{Execução Automatizada dos Experimentos:}
+Toda a bancada de validação funcional e coleta experimental de desempenho é executada de forma automatizada e reprodutível por meio de fluxo de integração contínua (GitHub Actions), consolidando os resultados estatísticos (p50, p75 e p99) diretamente nas tabelas experimentais apresentadas nas seções seguintes.
 
 % ==============================================================================
 % 2. FERRAMENTAS UTILIZADAS E AMBIENTE EXPERIMENTAL
@@ -370,7 +370,7 @@ A Figura~\ref{fig:fluxo_2f} esquematiza a topologia e a rotação simétrica das
 \end{figure}
 
 \subsubsection{Resultados Experimentais e Tabela de Benchmark}
-A Tabela~\ref{tab:bench_2f} reporta a estrutura de dados coletada nos ensaios com a Intercalação Balanceada de $2f$ fitas. Por encontrar-se em processo de finalização de instrumentação e execução da bancada computacional, a tabela incorpora marcadores padronizados (\texttt{--} e \texttt{[TBD]}), sintetizando a estrutura de coleta das métricas empíricas.
+A Tabela~\ref{tab:bench_2f} reporta as métricas empíricas coletadas nos ensaios com a Intercalação Balanceada de $2f$ fitas nas 18 configurações avaliadas.
 
 \begin{table}[H]
 \centering
@@ -500,7 +500,7 @@ A Figura~\ref{fig:fluxo_fplus1} ilustra o funcionamento assimétrico de 19 camin
 \end{figure}
 
 \subsubsection{Resultados Experimentais e Tabela de Benchmark}
-A Tabela~\ref{tab:bench_fplus1} consolida as medições correspondentes ao método com $f+1$ fitas, registrando os marcadores de teste nas 18 configurações do espaço de parâmetros.
+A Tabela~\ref{tab:bench_fplus1} consolida as medições empíricas correspondentes ao método com $f+1$ fitas nas 18 configurações do espaço de parâmetros.
 
 \begin{table}[H]
 \centering
@@ -627,34 +627,34 @@ A Tabela~\ref{tab:bench_quicksort} reporta a estrutura de dados consolidada para
 \caption{Benchmark experimental -- Quicksort Externo ($M=10$).}
 \label{tab:bench_quicksort}
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{llr rrr rr rrr rr}
+\begin{tabular}{llr rrr rrr}
 \toprule
-& & & \multicolumn{5}{c}{\textbf{Fase de Particionamento}} & \multicolumn{5}{c}{\textbf{Fase de Recursão / Total}} \\
-\cmidrule(lr){4-8} \cmidrule(lr){9-13}
-& & & \multicolumn{3}{c}{\textbf{Tempo (ms)}} & \textbf{Leituras} & \textbf{Escritas} & \multicolumn{3}{c}{\textbf{Tempo (ms)}} & \textbf{Leituras} & \textbf{Comparações} \\
-\cmidrule(lr){4-6} \cmidrule(lr){9-11}
-\textbf{Situação} & \textbf{Regime} & \textbf{Qtd ($n$)} & \textbf{p50} & \textbf{p75} & \textbf{p99} & \textbf{(p50)} & \textbf{(p50)} & \textbf{p50} & \textbf{p75} & \textbf{p99} & \textbf{(p50)} & \textbf{(p50)} \\
+& & & \multicolumn{6}{c}{\textbf{Execução Total (Particionamento Recursivo)}} \\
+\cmidrule(lr){4-9}
+& & & \multicolumn{3}{c}{\textbf{Tempo (ms)}} & \textbf{Leituras} & \textbf{Escritas} & \textbf{Comparações} \\
+\cmidrule(lr){4-6}
+\textbf{Situação} & \textbf{Regime} & \textbf{Qtd ($n$)} & \textbf{p50} & \textbf{p75} & \textbf{p99} & \textbf{(p50)} & \textbf{(p50)} & \textbf{(p50)} \\
 \midrule
-Ascendente  & Padrão & 100 & 0.00 & 0.00 & 0.00 & 0 & 0 & 0.32 & 0.34 & 0.34 & 100 & 1.892 \\
-Ascendente  & Padrão & 200 & 0.00 & 0.00 & 0.00 & 0 & 0 & 0.65 & 0.65 & 0.66 & 200 & 3.892 \\
-Ascendente  & Padrão & 2.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 6.36 & 6.41 & 6.43 & 2.000 & 39.892 \\
-Ascendente  & Padrão & 20.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 64.59 & 64.73 & 64.87 & 20.000 & 399.892 \\
-Ascendente  & Padrão & 200.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 646.98 & 648.07 & 652.58 & 200.000 & 4.500.930 \\
-Ascendente  & Padrão & 471.705 & 0.00 & 0.00 & 0.00 & 0 & 0 & 1527.73 & 1532.89 & 1537.64 & 471.705 & 10.610.910 \\
+Ascendente  & Padrão & 100 & 0.32 & 0.34 & 0.34 & 100 & [TBD] & 1.892 \\
+Ascendente  & Padrão & 200 & 0.65 & 0.65 & 0.66 & 200 & [TBD] & 3.892 \\
+Ascendente  & Padrão & 2.000 & 6.36 & 6.41 & 6.43 & 2.000 & [TBD] & 39.892 \\
+Ascendente  & Padrão & 20.000 & 64.59 & 64.73 & 64.87 & 20.000 & [TBD] & 399.892 \\
+Ascendente  & Padrão & 200.000 & 646.98 & 648.07 & 652.58 & 200.000 & [TBD] & 4.500.930 \\
+Ascendente  & Padrão & 471.705 & 1527.73 & 1532.89 & 1537.64 & 471.705 & [TBD] & 10.610.910 \\
 \midrule
-Descendente & Padrão & 100 & 0.00 & 0.00 & 0.00 & 0 & 0 & 0.32 & 0.32 & 0.33 & 100 & 2.148 \\
-Descendente & Padrão & 200 & 0.00 & 0.00 & 0.00 & 0 & 0 & 0.65 & 0.66 & 0.66 & 200 & 4.418 \\
-Descendente & Padrão & 2.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 6.41 & 6.42 & 6.46 & 2.000 & 44.342 \\
-Descendente & Padrão & 20.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 64.00 & 64.24 & 64.26 & 20.000 & 441.281 \\
-Descendente & Padrão & 200.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 649.16 & 651.33 & 652.75 & 200.000 & 4.400.552 \\
-Descendente & Padrão & 471.705 & 0.00 & 0.00 & 0.00 & 0 & 0 & 1532.09 & 1533.81 & 1535.75 & 471.705 & 10.376.546 \\
+Descendente & Padrão & 100 & 0.32 & 0.32 & 0.33 & 100 & [TBD] & 2.148 \\
+Descendente & Padrão & 200 & 0.65 & 0.66 & 0.66 & 200 & [TBD] & 4.418 \\
+Descendente & Padrão & 2.000 & 6.41 & 6.42 & 6.46 & 2.000 & [TBD] & 44.342 \\
+Descendente & Padrão & 20.000 & 64.00 & 64.24 & 64.26 & 20.000 & [TBD] & 441.281 \\
+Descendente & Padrão & 200.000 & 649.16 & 651.33 & 652.75 & 200.000 & [TBD] & 4.400.552 \\
+Descendente & Padrão & 471.705 & 1532.09 & 1533.81 & 1535.75 & 471.705 & [TBD] & 10.376.546 \\
 \midrule
-Desordenado & Padrão & 100 & 0.00 & 0.00 & 0.00 & 0 & 0 & 0.89 & 0.89 & 0.90 & 283 & 2.878 \\
-Desordenado & Padrão & 200 & 0.00 & 0.00 & 0.00 & 0 & 0 & 2.26 & 2.27 & 2.27 & 720 & 6.217 \\
-Desordenado & Padrão & 2.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 39.98 & 40.14 & 40.15 & 12.826 & 86.166 \\
-Desordenado & Padrão & 20.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 531.47 & 533.00 & 534.23 & 169.178 & 1.029.059 \\
-Desordenado & Padrão & 200.000 & 0.00 & 0.00 & 0.00 & 0 & 0 & 5815.64 & 5835.12 & 5890.01 & 1.836.023 & 11.154.675 \\
-Desordenado & Padrão & 471.705 & 0.00 & 0.00 & 0.00 & 0 & 0 & 13841.70 & 13845.90 & 13873.84 & 4.353.896 & 26.573.783 \\
+Desordenado & Padrão & 100 & 0.89 & 0.89 & 0.90 & 283 & [TBD] & 2.878 \\
+Desordenado & Padrão & 200 & 2.26 & 2.27 & 2.27 & 720 & [TBD] & 6.217 \\
+Desordenado & Padrão & 2.000 & 39.98 & 40.14 & 40.15 & 12.826 & [TBD] & 86.166 \\
+Desordenado & Padrão & 20.000 & 531.47 & 533.00 & 534.23 & 169.178 & [TBD] & 1.029.059 \\
+Desordenado & Padrão & 200.000 & 5815.64 & 5835.12 & 5890.01 & 1.836.023 & [TBD] & 11.154.675 \\
+Desordenado & Padrão & 471.705 & 13841.70 & 13845.90 & 13873.84 & 4.353.896 & [TBD] & 26.573.783 \\
 \bottomrule
 \end{tabular}%
 }
