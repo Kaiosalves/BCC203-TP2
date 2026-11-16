@@ -1,0 +1,103 @@
+
+#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <stdexcept>
+#include <utility>
+
+#include "Item.hpp"
+#include "SortStats.hpp"
+
+namespace FMais1 {
+
+// Registro armazenado no heap e seus metadados de bloco/fita.
+struct HeapEntry {
+    Item item;
+    uint32_t run = 0;
+    uint32_t tape = 0;
+};
+
+// Heap de mínimo com capacidade fixa, ordenado por bloco e nota.
+template <std::size_t Capacity>
+class SelectionHeap {
+  public:
+        explicit SelectionHeap(SortStats &stats) : stats_(stats) {}
+
+    bool Empty() const { return size_ == 0; }
+    bool Full() const { return size_ == Capacity; }
+    void Clear() { size_ = 0; }
+
+    // Reserva uma posição para inserir um registro.
+    HeapEntry &Append() {
+        if (size_ == Capacity) {
+            throw std::logic_error("Heap cheio: limite de memória interna");
+        }
+        data_[size_].run = 0;
+        data_[size_].tape = 0;
+        return data_[size_++];
+    }
+
+    // Remove a posição reservada se a leitura falhar.
+    void DropLast() {
+        if (size_ > 0) {
+            --size_;
+        }
+    }
+
+    // Constrói o heap.
+    void Build() {
+        for (std::size_t i = size_ / 2; i > 0; --i) {
+            SiftDown(i - 1);
+        }
+    }
+
+    // Acesso à raiz; chamar FixRoot() após alterá-la.
+    HeapEntry &Root() { return data_[0]; }
+    void FixRoot() { SiftDown(0); }
+
+    // Remove a raiz.
+    void PopRoot() {
+        --size_;
+        if (size_ > 0) {
+            data_[0] = data_[size_];
+            SiftDown(0);
+        }
+    }
+
+  private:
+    bool Less(const HeapEntry &a, const HeapEntry &b) {
+        if (a.run != b.run) {
+            return a.run < b.run;
+        }
+        ++stats_.comparisons;
+        return a.item.grade < b.item.grade;
+    }
+
+    void SiftDown(std::size_t i) {
+        while (true) {
+            const std::size_t left = 2 * i + 1;
+            if (left >= size_) {
+                return;
+            }
+
+            std::size_t smallest = left;
+            if (left + 1 < size_ && Less(data_[left + 1], data_[left])) {
+                smallest = left + 1;
+            }
+            if (!Less(data_[smallest], data_[i])) {
+                return;
+            }
+
+            std::swap(data_[i], data_[smallest]);
+            i = smallest;
+        }
+    }
+
+    std::array<HeapEntry, Capacity> data_{};
+    std::size_t size_ = 0;
+    SortStats &stats_;
+};
+
+}  // namespace FMais1
