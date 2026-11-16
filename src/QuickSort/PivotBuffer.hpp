@@ -30,7 +30,7 @@ public:
         return max;
     }
     
-    int OccupiedCOunt()const {
+    int OccupiedCount() const {
         return static_cast<int>(items_.size());
     }
 

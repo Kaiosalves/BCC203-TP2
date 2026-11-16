@@ -8,19 +8,24 @@
 #define BOLD "\033[1m"
 #define RESET "\033[0m"
 
-void Log::Info(const std::string& msg) {
-    if (!Log::enableInfo) {
-        return;
-    }
+namespace {
 
-    std::cout << BOLD << GREEN << "INFO: " << RESET << msg;
+void PrintLog(const char* color, const char* level, const std::string& msg) {
+    std::cout << BOLD << color << level << ": " << RESET << msg;
     if (msg.empty() || msg.back() != '\n') {
         std::cout << '\n';
     }
 }
-void Log::Error(const std::string& msg) {
-    std::cout << BOLD << RED << "ERROR: " << RESET << msg;
-    if (msg.empty() || msg.back() != '\n') {
-        std::cout << '\n';
+
+} // namespace
+
+void Log::Info(const std::string& msg) {
+    if (!Log::enableInfo) {
+        return;
     }
+    PrintLog(GREEN, "INFO", msg);
+}
+
+void Log::Error(const std::string& msg) {
+    PrintLog(RED, "ERROR", msg);
 }

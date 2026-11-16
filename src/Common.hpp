@@ -39,33 +39,25 @@ public:
     }
 
     static void RecordDiskRead(uint64_t count = 1) {
-        if (currentPhase_ == Phase::Preprocessing) {
-            preprocess_.diskReads += count;
-        } else {
-            search_.diskReads += count;
-        }
+        CurrentPhaseMetrics().diskReads += count;
     }
 
     static void RecordDiskWrite(uint64_t count = 1) {
-        if (currentPhase_ == Phase::Preprocessing) {
-            preprocess_.diskWrites += count;
-        } else {
-            search_.diskWrites += count;
-        }
+        CurrentPhaseMetrics().diskWrites += count;
     }
 
     static void RecordKeyComparison(uint64_t count = 1) {
-        if (currentPhase_ == Phase::Preprocessing) {
-            preprocess_.keyComparisons += count;
-        } else {
-            search_.keyComparisons += count;
-        }
+        CurrentPhaseMetrics().keyComparisons += count;
     }
 
     static const PhaseMetrics& Preprocessing() { return preprocess_; }
     static const PhaseMetrics& Search() { return search_; }
 
 private:
+    static PhaseMetrics& CurrentPhaseMetrics() {
+        return currentPhase_ == Phase::Preprocessing ? preprocess_ : search_;
+    }
+
     inline static Phase currentPhase_ = Phase::Preprocessing;
     inline static PhaseMetrics preprocess_{};
     inline static PhaseMetrics search_{};

@@ -71,7 +71,7 @@ void BalancedMerge2F::GenerateRuns(File &input) {
             in_[currentTapeIdx]->EndRun();
             break;
         }
-        //verifica se todos os itens sao marcados
+        // verifica se todos os itens sao marcados
         std::vector<Slot> tempHeap;
         bool allMarked = true;
         while (!mem.empty()) {
@@ -82,27 +82,20 @@ void BalancedMerge2F::GenerateRuns(File &input) {
             }
             tempHeap.push_back(s);
         }
-        for (const auto& s : tempHeap) {
-            mem.push(s);
-        }
-        //se todos estiverem marcados inicia um novo ciclo
+        // se todos estiverem marcados inicia um novo ciclo
         if (allMarked) {
-            //registra que o bloco acabou
+            // registra que o bloco acabou
             in_[currentTapeIdx]->EndRun();
-            std::vector<Slot> unmarkedHeap;
-            //desmarca todos os itens do heap
-            while (!mem.empty()) {
-                Slot s = mem.top();
-                mem.pop();
+            // desmarca todos os itens do heap
+            for (auto& s : tempHeap) {
                 s.marked = false;
-                unmarkedHeap.push_back(s);
             }
-            for (const auto& s : unmarkedHeap) {
-                mem.push(s);
-            }
-            //pula para a próxima fita
+            // pula para a próxima fita
             currentTapeIdx = (currentTapeIdx + 1) % in_.size();
             in_[currentTapeIdx]->BeginWrite();
+        }
+        for (const auto& s : tempHeap) {
+            mem.push(s);
         }
     }
 }

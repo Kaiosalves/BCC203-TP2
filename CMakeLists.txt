@@ -43,12 +43,20 @@ endif()
 # ==============================================================================
 set(SEARCH_SOURCES
     src/main.cpp
+    src/BinaryIO.cpp
     src/Common.cpp
     src/File.cpp
+    src/FileConverter.cpp
+    src/MethodRunner.cpp
+    src/RecordFormat.cpp
     src/Tape.cpp
     src/BalancedMerge2F/BalancedMerge2F.cpp
-    src/FPlus1/mergeFPlus1.cpp
+    src/FPlus1/BufferedTape.cpp
+    src/FPlus1/MergeFPlus1.cpp
+    src/FPlus1/MergePasses.cpp
+    src/FPlus1/RunGeneration.cpp
     src/QuickSort/QuickSort.cpp
+    src/QuickSort/QuickSortPartition.cpp
 )
 
 add_executable(ordena ${SEARCH_SOURCES})

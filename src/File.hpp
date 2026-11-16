@@ -53,8 +53,7 @@ class File {
     static std::string FormatDisplayLine(const Item &item);
 
   private:
-    static std::string BuildIntermediateBinaryPath(const std::string &inputPath);
-    static std::string BuildDefaultOutputPath(const std::string &inputPath);
+    template <typename Fn> void ForEachPage(Fn &&fn);
 
     std::ifstream file_;
     std::string path_;
