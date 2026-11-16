@@ -206,7 +206,7 @@ Toda a bancada de validação funcional e coleta experimental de desempenho é e
 Para assegurar reprodutibilidade científica, controle estrito de alocação de memória e precisão na contagem de operações primitivas de I/O, todo o ecossistema tecnológico do projeto foi padronizado de acordo com práticas rigorosas de engenharia de software contemporânea.
 
 \subsection{Linguagem, Compilador e Ferramentas de Construção}
-Optou-se pela utilização do padrão \textbf{C++23} (\textit{ISO/IEC 14882:2023}), mantendo a consistência arquitetural bem-sucedida do primeiro trabalho prático. Essa escolha proporciona abstrações de custo nulo em tempo de execução (\textit{zero-cost abstractions}), segurança de tipos em compilação e gerenciamento determinístico de recursos pelo paradigma RAII (\textit{Resource Acquisition Is Initialization}):
+Optou-se pela utilização do padrão \textbf{C++23} (\textit{ISO/IEC 14882:2023}). Essa escolha proporciona abstrações de custo nulo em tempo de execução (\textit{zero-cost abstractions}), segurança de tipos em compilação e gerenciamento determinístico de recursos pelo paradigma RAII (\textit{Resource Acquisition Is Initialization}):
 \begin{itemize}
     \item \textbf{Linguagem e Padrão:} C++23, empregando coleções de tamanho fixo (\texttt{std::array}) para mitigar dinamicidade indesejada em buffers de fita, fluxos de arquivo com tratamento explícito de buffers (\texttt{std::fstream}) e semântica de movimentação (\texttt{std::move});
     \item \textbf{Compilador:} LLVM Clang 18.x / GNU GCC 13.x, aplicando otimizações avançadas de vetorização e \textit{inlining} sob o perfil Release (\texttt{-O3});
@@ -251,7 +251,7 @@ A instrumentação do código é orientada pelo módulo singleton \texttt{Metric
 \end{enumerate}
 
 \paragraph{Protocolo Estatístico e Mitigação de Ruídos:}
-Seguindo o rigor metodológico validado no trabalho anterior, a avaliação empírica consolida os dados sob a ótica de distribuições percentilares:
+Para assegurar rigor metodológico, a avaliação empírica consolida os dados sob a ótica de distribuições percentilares:
 \begin{itemize}
     \item \textbf{Tempo de Execução:} Para acomodar a variabilidade inerente às operações de I/O do sistema operacional (como descargas de páginas pelo \textit{page cache} do Linux), reportam-se os percentis \textbf{p50 (Mediana)}, \textbf{p75} e \textbf{p99 (Latência de Cauda / Tail Latency)};
     \item \textbf{Métricas Algorítmicas Determinísticas (Leituras, Escritas e Comparações):} Dada a natureza determinística do fluxo das fitas magnéticas virtuais para uma dada permutação de entrada, reporta-se o valor mediano central \textbf{p50}, garantindo fidelidade analítica às formulações teóricas.
@@ -411,12 +411,12 @@ Desordenado & 471.705 & 235.31 & 238.79 & 300.07 & 4.718 & 23.576 & 242.68 & 245
 }
 \end{table}
 
-\subsubsection{Discussão Analítica e Comportamento Esperado}
-A formulação teórica do método de intercalação com $2f$ fitas permite antecipar padrões consistentes:
+\subsubsection{Discussão dos Resultados de Benchmark}
+Os dados experimentais apresentados na Tabela~\ref{tab:bench_2f} evidenciam o comportamento do algoritmo de intercalação balanceada com $2f$ fitas ($M = 10$, $f = 10$) ao longo das três situações de entrada e dos seis volumes avaliados:
 \begin{itemize}
-    \item \textbf{Comportamento Ótimo na Situação 1 (Ascendente):} Quando o arquivo de entrada já se encontra ordenado, cada registro sucessivo lido possui chave $\ge$ à do registro imediatamente anterior. Consequentemente, nenhum elemento do heap é congelado ao longo de toda a leitura. A seleção por substituição gera exatamente \textbf{um único bloco de tamanho $n$} gravado integralmente na fita $F_1$. Como há apenas um bloco gerado, a fase de intercalação é formalmente dispensada ($P = 0$ passadas), resultando em custo mínimo de I/O de exatamente $n$ leituras e $n$ escritas;
-    \item \textbf{Pior Caso na Situação 2 (Descendente):} Quando os dados chegam em ordem inversa, cada novo elemento lido é estritamente menor que o anterior, forçando o congelamento imediato do nó no heap. O algoritmo produz blocos rígidos com tamanho exatamente igual à capacidade da memória interna ($M = 10$). Para $n = 471.705$, são gerados $\approx 47.171$ blocos. Como $f = 10$, serão necessárias $P = \lceil \log_{10}(47.171) \rceil = 5$ passadas completas de intercalação sobre a base;
-    \item \textbf{Caso Médio na Situação 3 (Desordenado):} Em virtude da propriedade probabilística do reservatório, o tamanho médio do bloco atinge $2M = 20$ registros, gerando $\approx 23.586$ blocos para a base completa, demandando também $P = \lceil \log_{10}(23.586) \rceil = 5$ passadas de intercalação. Em cada passada de intercalação, os $n$ registros são lidos e reescritos, totalizando um tráfego de $2 \times n \times P$ operações adicionais de transferência de registros.
+    \item \textbf{Situação 1 (Arquivo Ascendente):} Conforme previsto pelo modelo teórico da seleção por substituição, quando os registros chegam previamente ordenados em ordem crescente, nenhuma chave inserida no \textit{Min-Heap} é menor que a última chave gravada. Dessa forma, nenhum elemento é congelado e toda a base é emitida como um único bloco ordenado contínuo na fita $F_1$. Na Tabela~\ref{tab:bench_2f}, isso se manifesta em leituras e escritas na Fase 1 rigorosamente iguais ao mínimo necessário para percorrer o arquivo em páginas de $100$ registros ($\lceil n / 100 \rceil$: de $1$ bloco para $n = 100$ até $4.718$ blocos para $n = 471.705$), enquanto a Fase 2 registra $0{,}00\text{ ms}$ de tempo e $0$ leituras em todos os volumes ($P = 0$ passadas de intercalação). Tanto o tempo quanto as comparações crescem linearmente com $n$;
+    \item \textbf{Situação 2 (Arquivo Descendente):} Na entrada em ordem decrescente, sucessivos registros lidos possuem chave inferior ao menor elemento recém-gravado, induzindo congelamentos recorrentes no heap de capacidade $M = 10$ (com preservação no bloco corrente apenas quando há igualdade de notas, pela condição $\ge$). Isso fragmenta a entrada em um grande número de blocos iniciais e impõe múltiplas passadas balanceadas entre as $10$ fitas de entrada e as $10$ fitas de saída na Fase 2. Observa-se nos benchmarks um aumento expressivo nas transferências de blocos e no número de comparações à medida que $n$ escala até $471.705$, fazendo com que a fase de intercalação responda por parcela substancial do tempo total de execução nos maiores volumes;
+    \item \textbf{Situação 3 (Arquivo Desordenado):} Sob distribuição aleatória, a seleção por substituição produz blocos iniciais com comprimento médio esperado de $E[\text{bloco}] \approx 2M = 20$ registros (podendo ampliar-se em eventuais empates de nota). A Fase 2 consolida esses blocos em $P = \lceil \log_{10}(B) \rceil$ passadas simétricas de intercalação multi-vias de 10 caminhos, mantendo o crescimento do tráfego de blocos e do tempo total dentro de uma trajetória regular e previsível até $n = 471.705$. A proximidade entre os percentis \texttt{p50}, \texttt{p75} e \texttt{p99} demonstra baixa variabilidade operacional, com oscilações pontuais na latência de cauda (\texttt{p99}) nos volumes mais elevados associadas ao gerenciamento de buffers e ao \textit{page cache} do sistema operacional.
 \end{itemize}
 
 % ------------------------------------------------------------------------------
@@ -426,14 +426,14 @@ A formulação teórica do método de intercalação com $2f$ fitas permite ante
 \label{subsec:metodo_fplus1}
 
 \subsubsection{Princípio de Funcionamento e Modelo Teórico}
-O segundo método avaliado altera substancialmente a assimetria do arranjo de armazenamento externo: enquanto o método anterior reservava metade das fitas para entrada e metade para saída ($10 \times 10$), o algoritmo de \textbf{Intercalação Balanceada com $f+1$ Fitas} explora 19 fitas ativas de entrada e apenas 1 fita de saída em cada etapa de intercalação ($f = 19$, totalizando as mesmas 20 fitas disponíveis no sistema).
+O algoritmo de \textbf{Intercalação Balanceada com $f+1$ Fitas} emprega uma topologia assimétrica sobre as 20 fitas disponíveis no sistema: 19 fitas atuam simultaneamente como fitas de entrada ($f = 19$) e apenas 1 fita atua como fita receptora de saída em cada etapa de intercalação.
 
-\paragraph{1. Memória Interna Expandida ($M = 19$):}
-Para atender ao equilíbrio operacional das 19 fitas de entrada no torneio de intercalação, a especificação técnica concede uma memória interna ampliada para armazenar até \textbf{19 registros simultâneos} ($M = 19$, contra os $M = 10$ do método 1). Essa ampliação de $90\%$ no buffer interno potencializa expressivamente a fase de geração de blocos por seleção por substituição:
+\paragraph{1. Memória Interna ($M = 19$):}
+Para viabilizar o torneio de intercalação entre as 19 fitas de entrada simultâneas, a memória interna é dimensionada para armazenar até \textbf{19 registros simultâneos} ($M = 19$). Na fase inicial de geração de blocos por seleção por substituição, essa capacidade resulta em um tamanho médio esperado de bloco dado por:
 \begin{equation}
     E[\text{Tamanho do Bloco}_{f+1}] \approx 2M = 2 \times 19 = 38 \text{ registros}.
 \end{equation}
-Como consequência direta, o número inicial de blocos ordenados gerados no caso desordenado é reduzido para quase metade daquele observado no Método 1: para $n = 471.705$, são gerados aproximadamente $\approx 12.414$ blocos (em contraposição a mais de $23.500$ no método anterior).
+Sob distribuição aleatória de chaves para o volume completo de $n = 471.705$ registros, a quantidade esperada de blocos ordenados iniciais gerados situa-se em torno de $B \approx 12.414$ blocos.
 
 \paragraph{2. Intercalação Assimétrica com Redistribuição de Blocos:}
 Em contrapartida à elevada aridade de intercalação (19 caminhos simultâneos convergindo para uma fita receptora), a topologia com $f+1$ fitas não permite alternância direta de papéis em bloco simétrico:
@@ -541,16 +541,12 @@ Desordenado & 471.705 & 40.95 & 41.85 & 42.08 & 4.718 & 4.708 & 1113.98 & 1115.7
 }
 \end{table}
 
-\subsubsection{Discussão Analítica e Comportamento Esperado}
-A análise comparativa entre as topologias $2f$ e $f+1$ expõe um clássico dilema de arquitetura de algoritmos de ordenação externa:
+\subsubsection{Discussão dos Resultados de Benchmark}
+Os resultados experimentais consolidados na Tabela~\ref{tab:bench_fplus1} retratam o comportamento da Intercalação Balanceada com $f+1$ Fitas ($M = 19$, $f = 19$) frente às três condições iniciais de ordenação e aos seis volumes testados:
 \begin{itemize}
-    \item \textbf{Vantagem do Fator de Ramificação Superior:} Por possuir $f = 19$ fitas convergindo para a intercalação, o número teórico de passadas de intercalação é dado por:
-    \begin{equation}
-        P_{f+1} = \left\lceil \log_{19} (B) \right\rceil.
-    \end{equation}
-    Para $B \approx 12.414$ blocos (caso desordenado da base completa com $n=471.705$), tem-se $\lceil \log_{19}(12.414) \rceil = \lceil 3{,}20 \rceil = 4$ passadas de intercalação, contra as 5 passadas exigidas no esquema de 10 caminhos ($2f$ fitas). Isso representa uma redução nominal direta de $20\%$ na quantidade de passadas de mesclagem;
-    \item \textbf{Custo da Sobrecarga de Redistribuição:} Essa diminuição de passadas é contrabalanceada pelo custo estrito da etapa de cópia/redistribuição. Ao enviar todos os blocos intercalados para $F_{20}$, é mandatório reler $F_{20}$ e fatiar seus registros de volta entre as 19 fitas, incorrendo em leituras e escritas extras equivalentes a um ciclo completo de varredura ($+2n$ transferências de registros por fase de redistribuição);
-    \item \textbf{Comportamento em Dados Ordenados:} A exemplo do Método 1, na Situação 1 a seleção por substituição gera um único bloco ordenado de tamanho $n$. Como todos os dados cabem em um único bloco, a ordenação conclui com zero passadas de intercalação e zero transferências de redistribuição.
+    \item \textbf{Situação 1 (Arquivo Ascendente):} Quando a entrada já se encontra ordenada crescentemente, a seleção por substituição com capacidade $M = 19$ acomoda o fluxo contínuo sem congelamentos de chaves no heap, gerando um único bloco ordenado de tamanho $n$. Como resultado, a Fase 1 realiza exatamente $\lceil n / 100 \rceil$ leituras de blocos ($1$ bloco para $n = 100$ até $4.718$ blocos para $n = 471.705$), mantendo tempo de geração proporcional a $n$, enquanto a Fase 2 registra $0{,}00\text{ ms}$ e $0$ transferências em todos os volumes, dispensando tanto a intercalação quanto qualquer etapa de redistribuição;
+    \item \textbf{Situação 2 (Arquivo Descendente):} A entrada decrescente provoca congelamentos recorrentes no reservatório de seleção por substituição ($M = 19$), multiplicando a quantidade de blocos iniciais distribuídos entre $F_1 \dots F_{19}$. Embora a elevada aridade de intercalação ($f = 19$) reduza a profundidade teórica para $P_{f+1} = \lceil \log_{19}(B) \rceil$ passadas de mesclagem, cada passada intermediária concentra os superblocos na única fita de saída $F_{20}$ e exige uma etapa completa de redistribuição física de $F_{20}$ de volta para $F_1 \dots F_{19}$. Esse ciclo adicional de leitura e gravação explica por que o tempo e as leituras da Fase 2 crescem de maneira acentuada a partir de $n = 20.000$ e passam a dominar o custo total em $n = 200.000$ e $n = 471.705$;
+    \item \textbf{Situação 3 (Arquivo Desordenado):} Sob entrada aleatória, a seleção por substituição gera blocos iniciais com tamanho médio teórico $E[\text{bloco}] \approx 38$ registros, o que permite consolidar grandes volumes como $n = 471.705$ em poucas passadas de intercalação ($P_{f+1} = \lceil \log_{19}(12.414) \rceil = 4$). Ainda assim, os dados empíricos mostram que o custo da Fase 2 supera largamente o da Fase 1 nos maiores volumes: além das comparações no torneio de $19$ caminhos, a necessidade de copiar os blocos intermediários de $F_{20}$ para as $19$ fitas de entrada acrescenta $+2n$ transferências de registros por ciclo de redistribuição, acentuando o volume de I/O sequencial e ampliando pontualmente a dispersão da latência de cauda (\texttt{p99}) nos ensaios de maior escala.
 \end{itemize}
 
 % ------------------------------------------------------------------------------
@@ -563,7 +559,7 @@ A análise comparativa entre as topologias $2f$ e $f+1$ expõe um clássico dile
 O algoritmo de \textbf{Quicksort Externo} adapta o elegante paradigma de ordenação por partição em torno de um pivô para manipular arquivos armazenados em dispositivos de memória secundária com acesso direto/aleatório.
 
 \paragraph{1. Área de Memória Interna e Janela de Pivoteamento ($M = 10$):}
-Diferente dos algoritmos de intercalação em fitas magnéticas (cujo fluxo é estritamente sequencial), o Quicksort Externo atua delimitando subarquivos através de dois apontadores em posições extremas: o limite inferior ($L_i$) e o limite superior ($L_s$). A memória interna armazena até $M = 10$ registros e atua como uma \textbf{área de pivoteamento com múltiplos delimitadores}, mantendo os limites $[\text{Min}, \text{Max}]$ dos registros presentes em RAM:
+O Quicksort Externo atua diretamente sobre um único arquivo em memória secundária com acesso aleatório/posicional, delimitando subarquivos através de dois apontadores em posições extremas: o limite inferior ($L_i$) e o limite superior ($L_s$). A memória interna armazena até $M = 10$ registros e atua como uma \textbf{área de pivoteamento com múltiplos delimitadores}, mantendo os limites $[\text{Min}, \text{Max}]$ dos registros presentes em RAM:
 \begin{enumerate}
     \item Inicialmente, os 10 primeiros registros da partição corrente são lidos e ordenados internamente na memória primária;
     \item Os ponteiros de leitura física no arquivo são posicionados: $L_i$ na extremidade inferior e $L_s$ na extremidade superior da partição em disco;
@@ -621,9 +617,9 @@ A Figura~\ref{fig:fluxo_quicksort} ilustra a partição bidirecional do arquivo 
 \end{figure}
 
 \subsubsection{Resultados Experimentais e Tabela de Benchmark}
-Diferentemente dos Métodos 1 e 2 (que realizam E/S sequencial paginada em blocos de \texttt{PAGE\_SIZE = 100} registros), o Quicksort Externo executa acessos aleatórios posicionais registro a registro nas extremidades $L_i$, $L_s$, $E_i$ e $E_s$. Para manter a mesma unidade de comparação em todos os algoritmos, a instrumentação do Método 3 acumula o total de registros lidos ($R_{\text{reg}}$) e escritos ($W_{\text{reg}}$) ao longo de toda a execução recursiva e reporta as transferências em forma de blocos de $100$ registros, calculadas por $\lceil R_{\text{reg}} / 100 \rceil$ e $\lceil W_{\text{reg}} / 100 \rceil$.
+Como o Quicksort Externo executa acessos posicionais registro a registro nas extremidades $L_i$, $L_s$, $E_i$ e $E_s$ do arquivo binário, a instrumentação acumula o total de registros lidos ($R_{\text{reg}}$) e escritos ($W_{\text{reg}}$) ao longo de toda a execução recursiva e reporta as transferências equivalentes na unidade padronizada de blocos de \texttt{PAGE\_SIZE = 100} registros, calculadas por $\lceil R_{\text{reg}} / 100 \rceil$ e $\lceil W_{\text{reg}} / 100 \rceil$.
 
-A Tabela~\ref{tab:bench_quicksort} reporta as métricas consolidadas para o Quicksort Externo nessa unidade padronizada (blocos de $100$ registros) nas três situações e nos seis volumes de dados.
+A Tabela~\ref{tab:bench_quicksort} reporta as métricas consolidadas para o Quicksort Externo nessa unidade (blocos de $100$ registros) nas três situações e nos seis volumes de dados.
 
 \begin{table}[H]
 \centering
@@ -663,16 +659,16 @@ Desordenado & 471.705 & 4386.82 & 4402.01 & 4402.28 & 43.539 & 43.539 & 26.573.7
 }
 \end{table}
 
-\subsubsection{Discussão Analítica e Comportamento Esperado}
-O comportamento assintótico e operacional do Quicksort Externo exibe particularidades notáveis em virtude do seu mecanismo de partição:
+\subsubsection{Discussão dos Resultados de Benchmark}
+A análise das métricas coletadas na Tabela~\ref{tab:bench_quicksort} revela aspectos característicos da arquitetura de particionamento bidirecional do Quicksort Externo:
 \begin{itemize}
-    \item \textbf{Custo de I/O em Níveis de Recursão:} Em cada nível da árvore de particionamento, todos os elementos da partição em análise são lidos da memória secundária e posteriormente gravados nos respectivos subarquivos em disco. Logo, cada nível recursivo consome aproximadamente $2n$ acessos a registros, equivalentes a $\approx 2 \lceil n / 100 \rceil$ transferências de blocos na métrica padronizada de \texttt{PAGE\_SIZE = 100}. No caso médio balanceado, a profundidade da recursão é proporcional a:
+    \item \textbf{Comportamento nas Situações 1 e 2 (Ascendente e Descendente):} Em ambas as situações previamente ordenadas, as transferências equivalentes mantêm-se estritamente iguais a $\lceil n / 100 \rceil$ blocos tanto para leitura quanto para escrita (variando de $1$ bloco em $n = 100$ a $4.718$ blocos em $n = 471.705$), acompanhadas por crescimento linear no tempo de execução e nas comparações de chaves. Esse padrão decorre da leitura alternada a partir das duas extremidades do arquivo ($L_i$ e $L_s$) combinada à atualização dinâmica dos limites $[\text{Min}, \text{Max}]$ da área de pivoteamento ($M = 10$): em sequências monotônicas crescentes ou decrescentes, as chaves lidas alternadamente nas pontas permanecem contidas no intervalo $[\text{Min}, \text{Max}]$ corrente após o preenchimento inicial do buffer, atravessam a memória interna e são gravadas ordenadamente por $E_i$ e $E_s$ sem acionar subarquivos recursivos não vazios, concluindo a ordenação em uma única passada de particionamento;
+    \item \textbf{Comportamento na Situação 3 (Desordenado):} Quando os registros estão distribuídos aleatoriamente, chaves frequentemente extrapolam os limites $[\text{Min}, \text{Max}]$, acionando desvios imediatos para os subarquivos inferior e superior e desdobrando a árvore de recursão com profundidade média esperada proporcional a:
     \begin{equation}
         H_{\text{médio}} \approx O(\log_{M+1} n) = O(\log_{11} n),
     \end{equation}
-    delimitando o custo total esperado de transferências de disco em $O(n \log_{M+1} n)$;
-    \item \textbf{Degeneração no Pior Caso (Dados Ordenados ou Inversos):} Se os elementos pivotais carregados no vetor interno forem extremos (mínimos ou máximos locais), o particionamento divide o conjunto de forma profundamente assimétrica (gerando partições de tamanho $n - M$ e 0). Nessa hipótese, a profundidade da árvore recursiva atinge $O(n / M)$, elevando a quantidade de transferências de leitura e escrita para a complexidade quadrática $O(n^2 / M)$, provocando intensa degradação temporal e potencial sobrecarga de I/O em arquivos de grande porte ($n = 200.000$ e $n = 471.705$);
-    \item \textbf{Vantagem de Não Exigir Fitas Magnéticas Múltiplas:} Em contraste com os Métodos 1 e 2 (que demandam alocação e orquestração de exatamente 20 fitas externas virtuais), o Quicksort Externo opera essencialmente sobre subarquivos particionados de acesso direto, eliminando o cabeçalho de gerenciamento de múltiplos descritores de fita e simplificando o footprint de arquivos no sistema operacional.
+    até atingir partições de tamanho $|S| \le 10$ (ordenadas internamente por inserção no caso base). Como cada nível recursivo lê e regrava os registros das partições ativas, o volume total de transferências escala para $O(n \log_{M+1} n)$, alcançando múltiplas passadas equivalentes nos maiores volumes ($43.539$ blocos lidos e escritos para $n = 471.705$). Além disso, como cada registro individual requer reposicionamento explícito de cursores em disco (\texttt{seekg} e \texttt{seekp}), o custo acumulado de chamadas de E/S aleatória eleva expressivamente o tempo de execução na escala de centenas de milhares de registros;
+    \item \textbf{Previsibilidade dos Percentis e Risco Teórico de Assimetria:} Em todas as configurações testadas, os percentis \texttt{p50}, \texttt{p75} e \texttt{p99} permanecem fortemente agrupados, refletindo o determinismo da árvore de chamadas e o uso de um único arquivo de acesso direto \textit{in-place} com baixa sobrecarga de descritores. Do ponto de vista assintótico geral, caso uma distribuição de entrada provocasse sucessivas partições extremamente desbalanceadas (gerando subarquivos de tamanho $n - M$ e $0$), a profundidade recursiva poderia degenerar para $O(n / M)$ e o tráfego de I/O para $O(n^2 / M)$, embora a estratégia de leitura bilateral nas extremidades tenha evitado tal degradação nas entradas monotônicas avaliadas.
 \end{itemize}
 
 % ==============================================================================
@@ -684,31 +680,31 @@ O comportamento assintótico e operacional do Quicksort Externo exibe particular
 A análise comparativa integrada dos três métodos elucida os trade-offs fundamentais existentes entre capacidade de memória primária, multiplicidade de dispositivos de armazenamento externo e estabilidade assintótica.
 
 \subsection{Custo de Transferências de Memória Externa (Leitura e Escrita)}
-O custo de I/O representa a métrica dominante do desempenho global, sendo expresso de forma uniforme em blocos de $100$ registros (\texttt{PAGE\_SIZE = 100}) nos três algoritmos:
+O custo de I/O representa a métrica dominante do desempenho global, sendo expresso de forma uniforme em blocos de $100$ registros (\texttt{PAGE\_SIZE = 100}) nos três algoritmos, embora com padrões físicos de acesso bastante distintos:
 \begin{itemize}
-    \item \textbf{Intercalação com $2f$ Fitas ($10 \times 10$):} Apresenta extrema previsibilidade. Na fase de geração de blocos, efetua estritamente $n$ leituras e $n$ escritas. Cada passada de intercalação adiciona exatamente $n$ leituras e $n$ escritas. Com $f = 10$, a quantidade de passadas cresce com base no logaritmo decimal do número de blocos, contendo o tráfego total de E/S mesmo para a escala máxima de 471.705 registros;
-    \item \textbf{Intercalação com $f+1$ Fitas ($19 \times 1$):} Beneficia-se de blocos iniciais maiores ($E[\text{bloco}] \approx 38$ registros graças a $M=19$) e base logarítmica superior ($\log_{19} B$), demandando teoricamente menos passadas de mesclagem. Todavia, a necessidade mandatória de redistribuir os registros da fita receptora $F_{20}$ de volta para as 19 fitas de entrada a cada passada introduz uma sobrecarga de varredura ($+2n$ operações de I/O por passada de redistribuição), podendo mitigar ou anular a vantagem algorítmica da maior aridade de intercalação;
-    \item \textbf{Quicksort Externo:} No caso médio, exibe eficiência comparável ou superior à intercalação balanceada por reter e fixar $M = 10$ elementos ordenados diretamente em suas posições definitivas a cada nó da árvore de particionamento. Contudo, exibe grande vulnerabilidade à assimetria de partições em dados patológicos, que elevam as transferências a patamares proibitivos.
+    \item \textbf{Intercalação com $2f$ Fitas ($10 \times 10$):} Apresenta extrema previsibilidade e equilíbrio de fluxo. Na fase de geração de blocos com $M = 10$, efetua estritamente $\lceil n / 100 \rceil$ leituras de entrada e grava blocos iniciais de tamanho médio $2M = 20$ registros (aproximadamente $23.586$ blocos no caso desordenado para $n = 471.705$). Com $f = 10$ vias simétricas, a quantidade de passadas na intercalação cresce em base decimal ($P_{2f} = \lceil \log_{10}(B) \rceil$, cerca de $5$ passadas para a base completa), alternando diretamente os papéis entre os dois grupos de $10$ fitas sem cópias extras e explorando E/S sequencial paginada;
+    \item \textbf{Intercalação com $f+1$ Fitas ($19 \times 1$):} Beneficia-se de memória interna $90\%$ maior ($M = 19$ contra $M = 10$ no esquema $2f$), gerando blocos iniciais quase duas vezes maiores ($E[\text{bloco}] \approx 38$ registros, ou $\approx 12.414$ blocos no caso desordenado de $n = 471.705$) e reduzindo o número de passadas de intercalação para $P_{f+1} = \lceil \log_{19}(12.414) \rceil = 4$ (redução nominal de $20\%$ em passadas de mesclagem frente às $5$ passadas do esquema $2f$). Todavia, como as $19$ fitas de entrada convergem para uma única fita receptora ($F_{20}$), a obrigatoriedade de reler e redistribuir os blocos de $F_{20}$ de volta para $F_1 \dots F_{19}$ entre passadas consecutivas introduz uma sobrecarga adicional equivalente a $+2n$ transferências de registros por etapa de redistribuição, anulando na prática o ganho obtido pela maior aridade e elevando o tempo total de execução em relação à topologia $2f$;
+    \item \textbf{Quicksort Externo:} Prescinde da orquestração de 20 fitas virtuais ao operar diretamente sobre um único arquivo binário por particionamento recursivo com $M = 10$. Em volume equivalente de blocos no caso desordenado, mantém ordem de grandeza comparável à dos métodos baseados em fitas ($\approx 43{,}5\text{ mil}$ blocos lidos e escritos em $n = 471.705$). Entretanto, ao contrário dos Métodos 1 e 2 (que realizam E/S sequencial paginada em blocos de $100$ registros), o Quicksort Externo executa acessos posicionais registro a registro (\texttt{seekg}/\texttt{seekp}), o que amplifica drasticamente a latência real de execução nos maiores volumes mesmo quando o total de blocos equivalentes é próximo.
 \end{itemize}
 
 \subsection{Custo de Comparações na Memória Principal}
-Embora as transferências de disco representem a maior fatia do tempo cronometrado, o volume de comparações lógicas em RAM reflete a complexidade do algoritmo de seleção interna:
+Embora as transferências de disco representem a maior fatia do tempo cronometrado, o volume de comparações lógicas em RAM reflete a complexidade das estruturas internas de cada abordagem:
 \begin{itemize}
-    \item Na \textbf{Seleção por Substituição}, a inserção e restauração de cada novo elemento no heap demanda $O(\log_2 M)$ comparações por registro (sendo $\log_2 10 \approx 3{,}32$ no Método 1 e $\log_2 19 \approx 4{,}25$ no Método 2);
-    \item Na \textbf{Intercalação Multi-vias}, a determinação do menor elemento entre os fluxos ativos de entrada exige $O(\log_2 f)$ comparações por registro emitido;
-    \item No \textbf{Quicksort Externo}, cada elemento lido do subarquivo é comparado contra os limites da área interna de 10 registros. Empregando-se busca binária no vetor interno ordenado, realizam-se $\approx \lceil \log_2 10 \rceil = 4$ comparações por registro em cada nível recursivo.
+    \item Na \textbf{Seleção por Substituição}, a inserção e restauração de cada novo elemento no \textit{Min-Heap} demanda $O(\log_2 M)$ comparações por registro (sendo $\log_2 10 \approx 3{,}32$ no esquema $2f$ e $\log_2 19 \approx 4{,}25$ no esquema $f+1$);
+    \item Na \textbf{Intercalação Multi-vias}, a seleção da menor chave entre os fluxos ativos de entrada exige $O(\log_2 f)$ comparações por registro emitido ($\log_2 10$ no método $2f$ contra $\log_2 19$ no método $f+1$), compensadas no método $f+1$ por um menor número de passadas de intercalação;
+    \item No \textbf{Quicksort Externo}, cada registro lido é comparado contra os limites $[\text{Min}, \text{Max}]$ da área interna de $M = 10$ elementos e, quando inserido no intervalo intermediário, posicionado via busca binária com $\approx \lceil \log_2 10 \rceil = 4$ comparações em cada nível recursivo.
 \end{itemize}
 
 \subsection{Sensibilidade ao Ordenamento Inicial da Base de Dados}
-A disposição prévia dos registros em \texttt{PROVAO.TXT} induz respostas diametralmente opostas nos três algoritmos:
+A disposição prévia dos registros em \texttt{PROVAO.TXT} induz respostas distintas nos três algoritmos:
 \begin{itemize}
-    \item \textbf{Arquivo Ordenado Ascendente (Situação 1):} É o melhor caso absoluto para os Métodos 1 e 2. Graças à seleção por substituição, o heap produz um único bloco abrangendo todos os $n$ elementos sem congelar nenhum registro, eliminando completamente toda a fase de intercalação. No Quicksort Externo, ao contrário, a ordenação prévia pode provocar partições desbalanceadas caso os pivôs selecionados não dividam o subarquivo uniformemente;
-    \item \textbf{Arquivo Ordenado Descendente (Situação 2):} Constitui o pior caso para a seleção por substituição (todos os nós congelam imediatamente, gerando blocos de tamanho mínimo $M$). Nos Métodos 1 e 2, isso maximiza o número inicial de blocos a serem intercalados. No Quicksort Externo, também induz desbalanceamento severo de partições recursivas;
-    \item \textbf{Arquivo Desordenado (Situação 3):} Representa o cenário prático típico de produção. A seleção por substituição atinge seu desempenho clássico de blocos de tamanho $\approx 2M$, e o Quicksort Externo tende à altura média logarítmica estável $O(\log_{M+1} n)$.
+    \item \textbf{Arquivo Ordenado Ascendente (Situação 1):} Constitui o melhor caso absoluto para as intercalações $2f$ e $f+1$. Graças à seleção por substituição, o heap produz um único bloco contínuo abrangendo todos os $n$ elementos sem congelar nenhum registro, zerando completamente a Fase 2 ($P = 0$ passadas e zero redistribuições). No Quicksort Externo implementado, a leitura alternada nas extremidades ($L_i$ e $L_s$) com atualização dinâmica de $[\text{Min}, \text{Max}]$ também evita a recursão e resolve a entrada em uma única varredura ($\lceil n / 100 \rceil$ blocos equivalentes), mas ainda com tempo de execução superior ao dos métodos em fita devido aos acessos posicionais individuais;
+    \item \textbf{Arquivo Ordenado Descendente (Situação 2):} Representa o pior caso para a seleção por substituição nos métodos $2f$ e $f+1$ (congelamentos sucessivos fragmentam a entrada em blocos próximos ao tamanho mínimo $M$, maximizando o trabalho na Fase 2, especialmente no esquema $f+1$ por conta das redistribuições em $F_{20}$). Já no Quicksort Externo, a estratégia bilateral nas extremidades manteve as chaves dentro de $[\text{Min}, \text{Max}]$ durante a partição inicial, preservando o custo de uma única passada em blocos ($\lceil n / 100 \rceil$), embora o modelo teórico geral do Quicksort permaneça sujeito à degeneração $O(n^2/M)$ para pivôs desfavoráveis;
+    \item \textbf{Arquivo Desordenado (Situação 3):} Reflete o cenário prático típico de produção. A seleção por substituição atinge seu comportamento médio clássico ($\approx 2M$ registros por bloco), destacando a superioridade temporal do arranjo simétrico $2f$ ($10 \times 10$) sobre o esquema assimétrico $f+1$ (penalizado pelas cópias de redistribuição) e sobre o Quicksort Externo (penalizado pelo particionamento recursivo com E/S posicional não paginada).
 \end{itemize}
 
 \subsection{Síntese Comparativa Geral}
-A Tabela~\ref{tab:sintese_comparativa} consolida os parâmetros arquiteturais, operacionais e de complexidade teórica dos três métodos de ordenação externa investigados.
+A Tabela~\ref{tab:sintese_comparativa} consolida os parâmetros arquiteturais, operacionais e de complexidade dos três métodos de ordenação externa investigados.
 
 \begin{table}[H]
 \centering
@@ -720,18 +716,19 @@ A Tabela~\ref{tab:sintese_comparativa} consolida os parâmetros arquiteturais, o
 \textbf{Característica / Propriedade} & \textbf{Intercalação $2f$ Fitas} & \textbf{Intercalação $f+1$ Fitas} & \textbf{Quicksort Externo} \\
 \midrule
 Capacidade da Memória Interna ($M$)   & 10 registros                     & 19 registros                     & 10 registros \\
-Número Total de Fitas / Dispositivos  & 20 fitas ($10 \text{ in} / 10 \text{ out}$) & 20 fitas ($19 \text{ in} / 1 \text{ out}$) & Acesso aleatório / particionamento \\
+Número Total de Fitas / Dispositivos  & 20 fitas ($10 \text{ in} / 10 \text{ out}$) & 20 fitas ($19 \text{ in} / 1 \text{ out}$) & 1 arquivo (acesso direto) \\
+Padrão Predominante de E/S            & Sequencial paginada (100 reg.)   & Sequencial paginada (100 reg.)   & Posicional por registro (\texttt{seek}) \\
 Técnica de Geração de Blocos Iniciais & Seleção por Substituição ($M=10$)& Seleção por Substituição ($M=19$)& N/A (Particionamento direto) \\
 Tamanho Médio do Bloco Inicial ($E[B]$)& $2M = 20$ registros             & $2M = 38$ registros             & N/A \\
 Fator de Intercalação (Aridade)       & 10 caminhos simultâneos          & 19 caminhos simultâneos          & Divisão em 2 subarquivos \\
 Necessidade de Redistribuição         & Não (inversão alternada de fitas)& Sim (cópia de $F_{20} \to F_1..F_{19}$)& Não se aplica \\
 Passadas de Intercalação (Caso Médio) & $\approx \lceil \log_{10}(n / 20) \rceil$& $\approx \lceil \log_{19}(n / 38) \rceil$& N/A \\
-Complexidade de I/O (Melhor Caso)     & $O(n)$ (1 bloco de tamanho $n$)  & $O(n)$ (1 bloco de tamanho $n$)  & $O(n \log_{M} n)$ \\
-Complexidade de I/O (Caso Médio)      & $O(n \log_{10}(n/M))$            & $O(n \log_{19}(n/M)) + \text{Redist.}$ & $O(n \log_{M} n)$ \\
-Complexidade de I/O (Pior Caso)       & $O(n \log_{10}(n/M))$ (blocos $M$)& $O(n \log_{19}(n/M)) + \text{Redist.}$& $O(n^2 / M)$ (degeneração) \\
-Sensibilidade à Ordenação Ascendente  & Ótima (intercalação nula)        & Ótima (intercalação nula)        & Risco de partição desbalanceada \\
-Sensibilidade à Ordenação Descendente & Blocos de tamanho $M$            & Blocos de tamanho $M$            & Risco de partição desbalanceada \\
-Complexidade de Engenharia de Fitas   & Moderada (troca de ponteiros)    & Alta (redistribuição física)     & Baixa (apontadores no arquivo) \\
+Complexidade de I/O (Melhor Caso)     & $O(n)$ (1 bloco de tamanho $n$)  & $O(n)$ (1 bloco de tamanho $n$)  & $O(n)$ na impl. / $O(n \log_{M} n)$ geral \\
+Complexidade de I/O (Caso Médio)      & $O(n \log_{10}(n/M))$            & $O(n \log_{19}(n/M)) + \text{Redist.}$ & $O(n \log_{M+1} n)$ \\
+Complexidade de I/O (Pior Caso)       & $O(n \log_{10}(n/M))$ (blocos $M$)& $O(n \log_{19}(n/M)) + \text{Redist.}$& $O(n^2 / M)$ (degeneração teórica) \\
+Sensibilidade à Ordenação Ascendente  & Ótima (intercalação nula)        & Ótima (intercalação nula)        & 1 passada na impl. (custo posicional) \\
+Sensibilidade à Ordenação Descendente & Blocos de tamanho $M$            & Blocos de tamanho $M$            & 1 passada na impl. (risco teórico $O(n^2/M)$) \\
+Complexidade de Engenharia            & Moderada (troca de papéis)       & Alta (redistribuição física)     & Baixa em fitas / alta em cursores \\
 \bottomrule
 \end{tabular}%
 }
@@ -744,12 +741,12 @@ Complexidade de Engenharia de Fitas   & Moderada (troca de ponteiros)    & Alta 
 \label{sec:conclusao}
 
 \subsection{Considerações Finais e Parecer Analítico}
-O estudo e a modelagem formal dos três métodos de ordenação externa conduzem a conclusões essenciais acerca da gestão de armazenamento secundário:
+O estudo comparativo e a avaliação experimental dos três métodos de ordenação externa conduzem a conclusões essenciais acerca da gestão de armazenamento secundário:
 \begin{enumerate}
-    \item \textbf{Primazia Crítica do I/O:} Na ordenação em memória externa, o tempo de resposta do sistema é dominado de maneira absoluta pela quantidade de acessos físicos a disco (operações de leitura e escrita). A CPU e a memória RAM desempenham papel de filtragem e triagem rápida; logo, algoritmos que maximizam o tamanho dos blocos iniciais ou elevam a aridade de intercalação garantem vantagens operacionais expressivas;
-    \item \textbf{Eficácia da Seleção por Substituição:} A técnica de seleção por substituição demonstra ser uma abordagem extraordinariamente elegante para geração de blocos, explorando a ordem natural preexistente nas entradas para produzir blocos que superam amplamente a capacidade de memória interna ($2M$ em média, e $n$ no melhor caso), amenizando de forma direta a sobrecarga das fases de intercalação;
-    \item \textbf{O Dilema $2f$ vs. $f+1$:} Embora o método de $f+1$ fitas possua maior aridade ($k = 19$) e maior buffer de geração ($M = 19$), a obrigação de redistribuir blocos a partir de uma fita única de saída representa um gargalo de I/O considerável, tornando o esquema simétrico $2f$ ($10 \times 10$) notavelmente mais fluído e eficiente em termos de simplicidade de tráfego de dados;
-    \item \textbf{Versatilidade do Quicksort Externo:} Para sistemas operacionais com suporte moderno a sistemas de arquivos com paginação de acesso direto, o Quicksort Externo prescinde da complexa orquestração de 20 fitas virtuais, constituindo uma alternativa compacta, com o ônus de requerer estratégias de mitigação contra pivôs desfavoráveis.
+    \item \textbf{Primazia do Padrão de Acesso e Paginação em I/O:} Na ordenação em memória externa, o tempo de resposta do sistema é governado não apenas pela quantidade equivalente de blocos transferidos, mas também pela localidade do acesso em disco. Os algoritmos baseados em fitas virtuais com leitura e escrita sequenciais em páginas de $100$ registros atingem vazão muito superior à do acesso posicional registro a registro empregado no Quicksort Externo;
+    \item \textbf{Eficácia da Seleção por Substituição:} Tanto na arquitetura $2f$ quanto na $f+1$, a seleção por substituição explora de forma eficiente a ordenação prévia existente na entrada, gerando blocos médios de tamanho $2M$ em dados aleatórios e consolidando entradas ascendentes em um único bloco contínuo ($P = 0$ passadas de intercalação);
+    \item \textbf{O Dilema $2f$ vs. $f+1$:} Embora o método de $f+1$ fitas disponha de maior aridade de intercalação ($f = 19$) e buffer de geração quase duas vezes maior ($M = 19$ contra $M = 10$), o gargalo imposto pela redistribuição física dos blocos de $F_{20}$ para $F_1 \dots F_{19}$ anula o ganho da redução de passadas e torna a topologia simétrica $2f$ ($10 \times 10$) consistentemente mais rápida e equilibrada nos cenários não ordenados;
+    \item \textbf{Trade-off Arquitetural do Quicksort Externo:} Por operar \textit{in-place} sobre um único arquivo de acesso direto, o Quicksort Externo elimina a necessidade de gerenciar 20 fitas virtuais e apresenta excelente comportamento em entradas monotônicas com leitura bilateral nas extremidades. Contudo, em dados desordenados de grande porte, o acúmulo de chamadas posicionais (\texttt{seekg}/\texttt{seekp}) por registro impõe penalidade temporal expressiva frente às intercalações balanceadas baseadas em fluxo sequencial paginado.
 \end{enumerate}
 
 \subsection{Principais Dificuldades de Implementação Encontradas e Previstas}
