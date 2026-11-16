@@ -1,6 +1,7 @@
 #include "BalancedMerge2F.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <fstream>
 #include <queue>
@@ -16,12 +17,23 @@ BalancedMerge2F::BalancedMerge2F(MergeConfig cfg) : cfg_(cfg) {}
 
 Tape *BalancedMerge2F::Sort(File &input) {
     this->CreateTapes();
-    this->GenerateRuns(input);
 
+    Metrics::SetPhase(Phase::Preprocessing);
+    const auto p1Start = std::chrono::steady_clock::now();
+    this->GenerateRuns(input);
+    const auto p1End = std::chrono::steady_clock::now();
+    this->phase1TimeMs_ =
+        std::chrono::duration<double, std::milli>(p1End - p1Start).count();
+
+    Metrics::SetPhase(Phase::Search);
+    const auto p2Start = std::chrono::steady_clock::now();
     while (TotalRuns(this->in_) > 1) {
         this->MergePass();
         this->SwapRoles();
     }
+    const auto p2End = std::chrono::steady_clock::now();
+    this->phase2TimeMs_ =
+        std::chrono::duration<double, std::milli>(p2End - p2Start).count();
 
     return this->in_.front();
 }
@@ -43,36 +55,73 @@ void BalancedMerge2F::CreateTapes() {
 }
 
 void BalancedMerge2F::GenerateRuns(File &input) {
+    struct MetricsScope {
+        File &file;
+        ~MetricsScope() { file.SetRecordMetrics(false); }
+    };
+    input.SetRecordMetrics(true);
+    const MetricsScope metricsGuard{input};
+    input.Rewind();
+
+    std::array<Item, PAGE_SIZE> page{};
+    uint64_t pageIdx = 0;
+    uint64_t pageCount = 0;
+    uint64_t consumed = 0;
+
+    auto readInput = [&](Item &item) {
+        if (consumed >= input.quantity()) {
+            return false;
+        }
+        if (pageIdx >= pageCount) {
+            if (input.eof()) {
+                return false;
+            }
+            page = input.GetNextPage();
+            pageCount = input.lastPageCount();
+            pageIdx = 0;
+            if (pageCount == 0) {
+                return false;
+            }
+        }
+        item = page[pageIdx++];
+        ++consumed;
+        return true;
+    };
+
+    for (Tape *t : in_) {
+        t->BeginWrite();
+    }
+
     std::priority_queue<Slot, std::vector<Slot>, std::greater<Slot>> mem;
 
     size_t currentTapeIdx = 0;
-    in_[currentTapeIdx]->BeginWrite();
 
     Item out;
     uint32_t loaded = 0;
-    //enchendo memória com itens desmarcados
-    while (loaded < static_cast<uint32_t>(cfg_.memorySize) && input.GetNextItem(out)) {
+    // enchendo memória com itens desmarcados
+    while (loaded < static_cast<uint32_t>(cfg_.memorySize) && readInput(out)) {
         mem.push(Slot{out, false});
         loaded++;
     }
 
     while (!mem.empty()) {
-        Slot minSlot = mem.top();//menor item do heap
-        mem.pop();//remove o item
-        //escreve na fita de saída atual
+        Slot minSlot = mem.top(); // menor item do heap
+        mem.pop();                // remove o item
+        // escreve na fita de saída atual
         in_[currentTapeIdx]->WriteItem(minSlot.item);
-        
-        Item nextItem;//le o próximo item
-        if (input.GetNextItem(nextItem)) {
+
+        Item nextItem; // le o próximo item
+        if (readInput(nextItem)) {
             bool marked = false;
             comparisonCount++;
+            Metrics::RecordKeyComparison();
             // se o item atual for menor que o ultimo entra marcado no heap
             if (nextItem < minSlot.item) {
                 marked = true;
             }
             mem.push(Slot{nextItem, marked});
         }
-        //se nao leu mais itens a intercalação finaliza
+        // se nao leu mais itens a intercalação finaliza
         if (mem.empty()) {
             in_[currentTapeIdx]->EndRun();
             break;
@@ -98,7 +147,6 @@ void BalancedMerge2F::GenerateRuns(File &input) {
             }
             // pula para a próxima fita
             currentTapeIdx = (currentTapeIdx + 1) % in_.size();
-            in_[currentTapeIdx]->BeginWrite();
         }
         for (const auto& s : tempHeap) {
             mem.push(s);
@@ -153,6 +201,7 @@ void BalancedMerge2F::MergeOneRun(Tape &out) {
                     minIdx = i;
                 } else {
                     comparisonCount++;
+                    Metrics::RecordKeyComparison();
                     if (heads[i].item < heads[minIdx].item) {
                         minIdx = i;
                     }
@@ -193,12 +242,11 @@ int RunMethod1(const std::shared_ptr<File> &file) {
         Metrics::Reset();
         BalancedMerge2F::comparisonCount = 0;
 
-        const auto start = std::chrono::steady_clock::now();
         BalancedMerge2F sorter;
         Tape *resultTape = sorter.Sort(*inputFile);
-        const auto end = std::chrono::steady_clock::now();
 
         if (resultTape != nullptr) {
+            resultTape->SetRecordMetrics(false);
             inputFile->CloseStream();
             std::ofstream out(inputFile->binaryPath(),
                               std::ios::binary | std::ios::trunc);
@@ -228,15 +276,13 @@ int RunMethod1(const std::shared_ptr<File> &file) {
             }
             out.flush();
             out.close();
+            resultTape->SetRecordMetrics(true);
             inputFile->ReopenStream();
         }
 
-        const double totalMs =
-            std::chrono::duration<double, std::milli>(end - start).count();
-
         SortRunResult result;
-        result.phase1TimeMs = totalMs;
-        result.phase2TimeMs = 0.0;
+        result.phase1TimeMs = sorter.phase1TimeMs();
+        result.phase2TimeMs = sorter.phase2TimeMs();
         result.valid = (resultTape != nullptr);
         result.report.title =
             "=== Método 1: intercalação balanceada 2f fitas ===";

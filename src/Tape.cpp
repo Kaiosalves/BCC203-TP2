@@ -104,6 +104,8 @@ void Tape::BeginRead() {
     this->file_.clear();
     this->pos_ = 0;
     this->currentRunIndex_ = 0;
+    this->inRun_ = false;
+    this->activeRunLen_ = 0;
     this->itemsReadInRun_ = 0;
     this->readBufferIndex_ = 0;
     this->readBufferCount_ = 0;
@@ -113,6 +115,9 @@ void Tape::BeginWrite() {
     this->file_.clear();
     this->pos_ = 0;
     this->runLengths_.clear();
+    this->currentRunIndex_ = 0;
+    this->inRun_ = false;
+    this->activeRunLen_ = 0;
     this->writeBufferIndex_ = 0;
     this->writeItemCount_ = 0;
 }
@@ -137,8 +142,11 @@ void Tape::EndRun() {
 
 bool Tape::StartNextRun() {
     if (currentRunIndex_ >= runLengths_.size()) {
+        inRun_ = false;
         return false;
     }
+    activeRunLen_ = runLengths_[currentRunIndex_++];
+    inRun_ = true;
     itemsReadInRun_ = 0;
     readBufferIndex_ = 0;
     readBufferCount_ = 0;
@@ -146,28 +154,20 @@ bool Tape::StartNextRun() {
 }
 
 bool Tape::ReadItem(Item& out) {
-    if (currentRunIndex_ >= runLengths_.size()) {
-        return false;
-    }
-    uint64_t currentRunLen = runLengths_[currentRunIndex_];
-    if (itemsReadInRun_ >= currentRunLen) {
-        currentRunIndex_++;
+    if (!inRun_ || itemsReadInRun_ >= activeRunLen_) {
+        inRun_ = false;
         return false;
     }
 
     if (readBufferIndex_ >= readBufferCount_) {
         readBuffer_ = ReadBlock();
         readBufferIndex_ = 0;
-        uint64_t remainingInRun = currentRunLen - itemsReadInRun_;
+        uint64_t remainingInRun = activeRunLen_ - itemsReadInRun_;
         readBufferCount_ = std::min(static_cast<uint64_t>(PAGE_SIZE), remainingInRun);
     }
 
     out = readBuffer_[readBufferIndex_++];
     itemsReadInRun_++;
-
-    if (itemsReadInRun_ == currentRunLen) {
-        currentRunIndex_++;
-    }
     return true;
 }
 

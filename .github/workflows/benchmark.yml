@@ -63,6 +63,8 @@ jobs:
             texlive-latex-base \
             texlive-latex-recommended \
             texlive-latex-extra \
+            texlive-fonts-recommended \
+            texlive-pictures \
             texlive-lang-portuguese
 
       - name: Configurar Python
@@ -75,6 +77,10 @@ jobs:
           cmake -B build -S . -DCMAKE_BUILD_TYPE=${{ inputs.build_type }}
           cmake --build build --parallel
 
+      - name: Gerar arquivos de entrada (tmp/)
+        run: |
+          python3 scripts/generate_provao.py --input PROVAO.TXT --output-dir tmp
+
       - name: Executar benchmarks e gerar CSV
         run: |
           python3 scripts/run_benchmarks.py \
@@ -84,7 +90,8 @@ jobs:
             --quantities "${{ inputs.quantities }}" \
             --runs "${{ inputs.runs }}" \
             --timeout "${{ inputs.timeout_seconds }}" \
-            --output-csv results/benchmark.csv
+            --output-csv results/benchmark.csv \
+            --fail-on-error
 
       - name: Atualizar tabelas do relatório LaTeX
         run: |
@@ -111,7 +118,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add results/benchmark.csv relatorio.tex relatorio.pdf
+          git add -f results/benchmark.csv relatorio.tex relatorio.pdf
           if git diff --cached --quiet; then
             echo "Nenhuma alteração para commitar."
           else

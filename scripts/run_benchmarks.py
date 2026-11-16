@@ -150,11 +150,12 @@ def parse_program_output(output: str, elapsed_ms: float) -> dict[str, float | No
             try:
                 data = json.loads(stripped)
                 if isinstance(data, dict):
+                    p2_time = _to_float(data.get("phase2_time_ms"))
                     return {
                         "phase1_time_ms": _to_float(data.get("phase1_time_ms")),
                         "phase1_reads": _to_float(data.get("phase1_reads")),
                         "phase1_writes": _to_float(data.get("phase1_writes")),
-                        "phase2_time_ms": _to_float(data.get("phase2_time_ms")) or elapsed_ms,
+                        "phase2_time_ms": p2_time if p2_time is not None else elapsed_ms,
                         "phase2_reads": _to_float(data.get("phase2_reads")),
                         "comparisons": _to_float(data.get("comparisons")),
                     }
@@ -374,6 +375,11 @@ def main() -> int:
         default=[],
         help="Additional arguments passed to `ordena`",
     )
+    parser.add_argument(
+        "--fail-on-error",
+        action="store_true",
+        help="Exit with non-zero status if any benchmark execution fails with an error",
+    )
     args = parser.parse_args()
 
     if not args.binary.exists():
@@ -425,6 +431,16 @@ def main() -> int:
         writer.writerows(rows)
 
     print(f"CSV saved to {args.output_csv} ({len(rows)} rows)")
+
+    if args.fail_on_error:
+        error_rows = [r for r in rows if r["status"] == "error"]
+        if error_rows:
+            print(
+                f"Error: {len(error_rows)} benchmark configuration(s) failed with errors.",
+                file=sys.stderr,
+            )
+            return 1
+
     return 0
 
 

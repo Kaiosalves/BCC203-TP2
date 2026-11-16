@@ -50,6 +50,8 @@ class Tape {
 
     std::vector<uint64_t> runLengths_;
     uint64_t currentRunIndex_ = 0;
+    bool inRun_ = false;
+    uint64_t activeRunLen_ = 0;
 
     std::array<Item, PAGE_SIZE> writeBuffer_{};
     size_t writeBufferIndex_ = 0;

@@ -19,6 +19,9 @@ class BalancedMerge2F {
 
     Tape *Sort(File &input);
 
+    double phase1TimeMs() const { return phase1TimeMs_; }
+    double phase2TimeMs() const { return phase2TimeMs_; }
+
     static uint64_t comparisonCount;
 
   private:
@@ -30,11 +33,14 @@ class BalancedMerge2F {
             if (marked != b.marked) {
                 return marked;
             }
+            Metrics::RecordKeyComparison();
             return item > b.item;
         }
     };
 
     MergeConfig cfg_;
+    double phase1TimeMs_ = 0.0;
+    double phase2TimeMs_ = 0.0;
     std::vector<std::unique_ptr<Tape>> tapes_;
     std::vector<Tape *> in_;
     std::vector<Tape *> out_;

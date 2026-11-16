@@ -15,7 +15,8 @@ build/
 tmp/
 *.bin
 __pycache__/
-results/
+results/*
+!results/benchmark.csv
 .cache/
 
 compile_commands.json
