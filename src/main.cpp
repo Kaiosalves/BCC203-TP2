@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <memory>
 
+#include "BalancedMerge2F/BalancedMerge2F.hpp"
 #include "Common.hpp"
 #include "FPlus1/MergeFPlus1.hpp"
 #include "File.hpp"
@@ -100,8 +101,7 @@ int main(int argc, char *argv[]) {
 
     switch (static_cast<MethodType>(methodValue)) {
     case BalancedMerge2F:
-        Log::Error("Method 1 (2f balanced merge) is not implemented yet");
-        return -1;
+        return RunMethod1(file);
     case BalancedMergeFPlus1Method:
         return RunMethod2(file);
     case ExternalQuickSort:

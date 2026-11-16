@@ -1,8 +1,14 @@
 #include "BalancedMerge2F.hpp"
 
-#include <stdexcept>
-#include <queue>
 #include <algorithm>
+#include <chrono>
+#include <fstream>
+#include <queue>
+#include <stdexcept>
+
+#include "BinaryIO.hpp"
+#include "Common.hpp"
+#include "MethodRunner.hpp"
 
 uint64_t BalancedMerge2F::comparisonCount = 0;
 
@@ -180,4 +186,62 @@ uint64_t BalancedMerge2F::TotalRuns(const std::vector<Tape *> &tapes) {
 void BalancedMerge2F::SwapRoles() { 
     this->in_.swap(this->out_);
     //inverte o papel das fitas 
+}
+
+int RunMethod1(const std::shared_ptr<File> &file) {
+    return RunSortMethod(file, [](const std::shared_ptr<File> &inputFile) {
+        Metrics::Reset();
+        BalancedMerge2F::comparisonCount = 0;
+
+        const auto start = std::chrono::steady_clock::now();
+        BalancedMerge2F sorter;
+        Tape *resultTape = sorter.Sort(*inputFile);
+        const auto end = std::chrono::steady_clock::now();
+
+        if (resultTape != nullptr) {
+            inputFile->CloseStream();
+            std::ofstream out(inputFile->binaryPath(),
+                              std::ios::binary | std::ios::trunc);
+            if (!out.is_open()) {
+                throw std::runtime_error(
+                    "Não foi possível abrir o arquivo binário para escrita");
+            }
+            resultTape->BeginRead();
+            std::array<Item, PAGE_SIZE> page{};
+            std::size_t count = 0;
+            while (resultTape->StartNextRun()) {
+                Item item;
+                while (resultTape->ReadItem(item)) {
+                    page[count++] = item;
+                    if (count == PAGE_SIZE) {
+                        BinaryIO::WriteItemsPage(
+                            out, page, count,
+                            "Erro ao escrever arquivo binário ordenado");
+                        count = 0;
+                    }
+                }
+            }
+            if (count > 0) {
+                BinaryIO::WriteItemsPage(
+                    out, page, count,
+                    "Erro ao escrever arquivo binário ordenado");
+            }
+            out.flush();
+            out.close();
+            inputFile->ReopenStream();
+        }
+
+        const double totalMs =
+            std::chrono::duration<double, std::milli>(end - start).count();
+
+        SortRunResult result;
+        result.phase1TimeMs = totalMs;
+        result.phase2TimeMs = 0.0;
+        result.valid = (resultTape != nullptr);
+        result.report.title =
+            "=== Método 1: intercalação balanceada 2f fitas ===";
+        result.report.readLabel = "Transferências de leitura (blocos):";
+        result.report.writeLabel = "Transferências de escrita (blocos):";
+        return result;
+    });
 }

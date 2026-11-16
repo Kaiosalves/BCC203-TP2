@@ -46,3 +46,5 @@ class BalancedMerge2F {
     static uint64_t TotalRuns(const std::vector<Tape *> &tapes);
     void SwapRoles();
 };
+
+int RunMethod1(const std::shared_ptr<File> &file);
