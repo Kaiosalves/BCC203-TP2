@@ -73,10 +73,72 @@ void QuickSortExterno::EscreveMin(std::fstream& ArqEi, const Item& R, int& Ei){
 
 }
 
+void QuickSortExterno::Particao(std::fstream& ArqLi, std::fstream& ArqEi, std::fstream& ArqLEs, PivotBuffer& pivot, int Esq, int Dir, int& i, int& j){
+    int Ls = Dir, Es = Dir, Li = Esq, Ei = Esq;// variaveis
+    float Linf = -std::numeric_limits<float>::max();   
+    float Lsup = std::numeric_limits<float>::max();    
+    bool OndeLer = true;
+    Item UltLido, R;
 
-// to do
-void QuickSortExterno::Particao(std::fstream& ArqLi, std::fstream& ArqEi, std::fstream& ArqLEs,
-                         PivotBuffer& pivot, int Esq, int Dir, int& i, int& j){
-
+    pivot.ClearVector(); //esvaziar por garantia
+    i = Esq - 1;
+    j = Dir + 1;
     
+    while (Ls >= Li) {
+    // lendo alternado dos extremos, regidstrossd
+        if (pivot.OccupiedCOunt() < TAMAREA - 1) {
+            if (OndeLer) LeSup(ArqLEs, UltLido, Ls, OndeLer);
+            else         LeInf(ArqLi, UltLido, Li, OndeLer);
+            pivot.Insert(UltLido);
+            continue;
+        }
+    
+    }
+
+    //garante que a leitura nao alcance a escrita (nao pode perder registro)
+        if (Ls == Es)            LeSup(ArqLEs, UltLido, Ls, OndeLer);
+        else if (Li == Ei)       LeInf(ArqLi, UltLido, Li, OndeLer);
+        else if (OndeLer)        LeSup(ArqLEs, UltLido, Ls, OndeLer);
+        else                     LeInf(ArqLi, UltLido, Li, OndeLer);
+
+    //maior que o limite superior: vai direto pra A2
+        Metrics::RecordKeyComparison();
+        if (UltLido.grade > Lsup) {
+            j = Es;
+            EscreveMax(ArqLEs, UltLido, Es);
+            continue;
+        }
+
+    //menor que o limite inferior: vai direto pra A1
+        Metrics::RecordKeyComparison();
+        if (UltLido.grade < Linf) {
+            i = Ei;
+            EscreveMin(ArqEi, UltLido, Ei);
+            continue;
+        }
+
+    //esta entre os limites, sai subarq menor
+        pivot.Insert(UltLido);
+        if (Ei - Esq < Dir - Es) {
+            R = pivot.MinRemove();
+            EscreveMin(ArqEi, R, Ei);
+            Linf = R.grade;
+        } else {
+            R = pivot.MaxRemove();
+            EscreveMax(ArqLEs, R, Es);
+            Lsup = R.grade;
+        }
+    }
+
+    //descarrega a area no meio do arquivo e ja deixa ordenado
+    while (Ei <= Es) {
+        R = pivot.MinRemove();
+        EscreveMin(ArqEi, R, Ei);
+    }
+
+    //os 3 fstream sao o mesmo arquivo: manda pro disco o que foi escrito
+    //senao a proxima particao pode ler dado velho do buffer
+    ArqEi.flush();
+    ArqLEs.flush();
+
 }
