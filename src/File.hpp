@@ -15,11 +15,14 @@ class File {
     ~File();
 
     std::array<Item, PAGE_SIZE> GetNextPage();
+    void Rewind();
 
     std::string path() const;
     std::filesystem::file_time_type lastModification() const;
     uint64_t size() const;
     uint64_t quantity() const;
+    uint64_t lastPageCount() const;
+    uint64_t itemsRead() const;
     bool eof();
 
   private:
@@ -27,4 +30,6 @@ class File {
     std::string path_;
 
     uint64_t quantity_;
+    uint64_t itemsRead_ = 0;
+    uint64_t lastPageCount_ = 0;
 };

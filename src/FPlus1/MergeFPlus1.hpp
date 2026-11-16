@@ -1,14 +1,16 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <vector>
 
-#include "RunTape.hpp"
+#include "Common.hpp"
+#include "File.hpp"
+#include "Item.hpp"
 #include "SelectionHeap.hpp"
-#include "SortStats.hpp"
+#include "Tape.hpp"
 
 // Método 2: intercalação balanceada f+1 com seleção por substituição.
 //
@@ -25,32 +27,60 @@ class BalancedMergeFPlus1 {
     static constexpr std::size_t kInputTapes = 19;
     static constexpr std::size_t kTotalTapes = kInputTapes + 1;
 
-    BalancedMergeFPlus1(std::string inputPath, uint64_t quantity);
+    explicit BalancedMergeFPlus1(std::shared_ptr<File> file);
 
-    // Ordena os registros e atualiza as estatísticas.
+    // Ordena os registros e atualiza as métricas globais.
     void Sort();
 
-    const SortStats &stats() const { return stats_; }
+    uint64_t runs() const { return runs_; }
+    uint64_t mergePasses() const { return mergePasses_; }
+    double phase1TimeMs() const { return phase1TimeMs_; }
+    double phase2TimeMs() const { return phase2TimeMs_; }
 
     // Confere o resultado e, se solicitado, imprime os registros ordenados.
     // Deve ser chamado após Sort().
     bool CheckAndShowResult(bool print);
 
   private:
+    struct BufferedTape {
+        std::unique_ptr<Tape> tape;
+        std::array<Item, PAGE_SIZE> buffer{};
+        std::size_t bufPos = 0;
+        std::vector<uint64_t> runs;
+        uint64_t currentRunLength = 0;
+        uint64_t totalRecords = 0;
+        uint64_t recordsRead = 0;
+        std::size_t nextRun = 0;
+        bool reading = false;
+
+        BufferedTape();
+
+        void Clear();
+        void WriteRecord(const Item &item);
+        void EndRun();
+        void Rewind();
+        bool ReadRecord(Item &item);
+        bool HasNextRun() const;
+        uint64_t BeginNextRun();
+        std::size_t NumRuns() const;
+    };
+
     void GenerateRuns();
     void MergePass();
     void Redistribute();
     bool AnyInputHasRun() const;
-    static void ReadOrThrow(RunTape &tape, Item &item);
+    static void ReadOrThrow(BufferedTape &tape, Item &item);
 
-    std::string inputPath_;
-    uint64_t quantity_;
-    SortStats stats_;
+    std::shared_ptr<File> file_;
+    uint64_t runs_ = 0;
+    uint64_t mergePasses_ = 0;
+    double phase1TimeMs_ = 0.0;
+    double phase2TimeMs_ = 0.0;
 
-    std::vector<std::unique_ptr<RunTape>> tapes_;
+    std::vector<std::unique_ptr<BufferedTape>> tapes_;
     FMais1::SelectionHeap<kMemoryRecords> heap_;
-    RunTape *result_ = nullptr;
+    BufferedTape *result_ = nullptr;
 };
 
-  // Executa o método 2. Retorna 0 em caso de sucesso e -1 em caso de erro.
-int RunMethod2(const std::string &inputPath, uint64_t quantity);
+// Executa o método 2. Retorna 0 em caso de sucesso e -1 em caso de erro.
+int RunMethod2(const std::shared_ptr<File> &file);

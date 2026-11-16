@@ -44,7 +44,10 @@ endif()
 set(SEARCH_SOURCES
     src/main.cpp
     src/Common.cpp
+    src/File.cpp
     src/Tape.cpp
+    src/FPlus1/mergeFPlus1.cpp
+    src/QuickSort/QuickSort.cpp
 )
 
 add_executable(ordena ${SEARCH_SOURCES})

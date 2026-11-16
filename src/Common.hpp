@@ -22,6 +22,7 @@ enum class Phase : uint8_t {
 
 struct PhaseMetrics {
     uint64_t diskReads = 0;
+    uint64_t diskWrites = 0;
     uint64_t keyComparisons = 0;
 };
 
@@ -42,6 +43,14 @@ public:
             preprocess_.diskReads += count;
         } else {
             search_.diskReads += count;
+        }
+    }
+
+    static void RecordDiskWrite(uint64_t count = 1) {
+        if (currentPhase_ == Phase::Preprocessing) {
+            preprocess_.diskWrites += count;
+        } else {
+            search_.diskWrites += count;
         }
     }
 

@@ -1,8 +1,17 @@
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 
 #include "Common.hpp"
+#include "FPlus1/MergeFPlus1.hpp"
 #include "File.hpp"
+#include "QuickSort/QuickSort.hpp"
+
+enum MethodType : uint8_t {
+    BalancedMerge2F = 1,
+    BalancedMergeFPlus1Method = 2,
+    ExternalQuickSort = 3,
+};
 
 enum FileType : uint8_t {
     Ascending = 1,
@@ -72,11 +81,26 @@ int main(int argc, char *argv[]) {
             filePath = candidateSame;
         }
     }
+    int const methodValue = std::atoi(argv[1]);
+    if (methodValue < MethodType::BalancedMerge2F ||
+        methodValue > MethodType::ExternalQuickSort) {
+        Log::Error("<method> must be one of these: 1 -> 2f balanced merge; 2 "
+                   "-> f+1 balanced merge; 3 -> external quicksort");
+        return -1;
+    }
+
     std::shared_ptr<File> const file =
         std::make_shared<File>(filePath.string(), quantity);
 
-    Log::Error("Error: <method>, must be one of these: 1 -> indexed "
-               "sequencial access; 2 -> binary tree; 3 -> B tree; 4 -> B* "
-               "tree");
+    switch (static_cast<MethodType>(methodValue)) {
+    case BalancedMerge2F:
+        Log::Error("Method 1 (2f balanced merge) is not implemented yet");
+        return -1;
+    case BalancedMergeFPlus1Method:
+        return RunMethod2(file);
+    case ExternalQuickSort:
+        return QuickSortExterno::Run(file);
+    }
+
     return -1;
 }

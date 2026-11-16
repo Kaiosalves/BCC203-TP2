@@ -1,28 +1,32 @@
 #pragma once
 
 #include <fstream>
+#include <memory>
 #include <string>
+
+#include "File.hpp"
 #include "Item.hpp"
 #include "PivotBuffer.hpp"
 
-class QuickSortExterno{
-private:
-    static void Executar(std::fstream& ArqLi, std::fstream& ArqEi, std::fstream& ArqLEs, int Esq, int Dir);
+class QuickSortExterno {
+  private:
+    static void Executar(std::fstream &file, int Esq, int Dir);
 
-    static void Particao(std::fstream& ArqLi, std::fstream& ArqEi, std::fstream& ArqLEs,
-                         PivotBuffer& pivot, int Esq, int Dir, int& i, int& j);
+    static void Particao(std::fstream &file, PivotBuffer &pivot, int Esq,
+                         int Dir, int &i, int &j);
 
-    static void LeSup(std::fstream& ArqLEs, Item& UltLido, int& Ls, bool& OndeLer);
+    static void LeSup(std::fstream &file, Item &UltLido, int &Ls,
+                      bool &OndeLer);
 
-    static void LeInf(std::fstream& ArqLi, Item& UltLido, int& Li, bool& OndeLer);
+    static void LeInf(std::fstream &file, Item &UltLido, int &Li,
+                      bool &OndeLer);
 
-    static void EscreveMax(std::fstream& ArqLEs, const Item& R, int& Es);
+    static void EscreveMax(std::fstream &file, const Item &R, int &Es);
 
-    static void EscreveMin(std::fstream& ArqEi, const Item& R, int& Ei);
+    static void EscreveMin(std::fstream &file, const Item &R, int &Ei);
 
-public:
-
-    static void Ordenar (const std::string& binFilePath, int quantity);
-
-
+  public:
+    static void Ordenar(const std::string &binFilePath, int quantity);
+    static void Ordenar(const std::shared_ptr<File> &file);
+    static int Run(const std::shared_ptr<File> &file);
 };

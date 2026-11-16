@@ -16,6 +16,10 @@ class Tape {
 
     void AdvanceBlock();
     void RetreatBlock();
+    void Rewind();
+    void Clear();
+
+    void SetRecordMetrics(bool enabled);
 
     uint32_t GetId() const;
     uint32_t GetCurrentPosition() const;
@@ -25,6 +29,7 @@ class Tape {
 
     uint32_t id_;
     uint32_t pos_ = 0;
+    bool recordMetrics_ = true;
     std::fstream file_;
 
     std::string GetPath() const;

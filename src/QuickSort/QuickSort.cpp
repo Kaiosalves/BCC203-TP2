@@ -1,144 +1,375 @@
 #include "QuickSort.hpp"
+
+#include <chrono>
+#include <cstdio>
+#include <exception>
+#include <filesystem>
+#include <iostream>
+#include <limits>
+#include <stdexcept>
+#include <string>
+
 #include "Common.hpp"
 
-void QuickSortExterno::Ordenar (const std::string& binFilePath, int quantity){
-//cria os apontadores de leitura e escrita do arquivo
-    std::fstream ArqLi(binFilePath, std::ios::in | std::ios::out | std::ios::binary);
-    std::fstream ArqEi(binFilePath, std::ios::in | std::ios::out | std::ios::binary);
-    std::fstream ArqLEs(binFilePath, std::ios::in | std::ios::out | std::ios::binary);
-    
-//chama o metodo principal pra executar o metodo
-    Executar(ArqLi, ArqEi, ArqLEs, 1, quantity);
+namespace {
+
+std::string TrimRight(const char *data, std::size_t size) {
+    std::string text(data, size);
+    const auto last = text.find_last_not_of(" \0", std::string::npos, 2);
+    text.erase(last == std::string::npos ? 0 : last + 1);
+    return text;
 }
 
+std::string FormatItem(const Item &item) {
+    char head[64];
+    std::snprintf(head, sizeof(head), "%08ld %5.1f %.2s ",
+                  item.registrationNumber, static_cast<double>(item.grade),
+                  item.state.data());
+    return std::string(head) + TrimRight(item.city.data(), item.city.size()) +
+           " | " + TrimRight(item.degree.data(), item.degree.size());
+}
 
-//funcao recursiva para executar o metodo principal do algoritmos
-void QuickSortExterno::Executar(std::fstream& ArqLi, std::fstream& ArqEi, std::fstream& ArqLEs, int Esq, int Dir){
-//nao precisa mais ordenar, caso base
-    if (Dir - Esq < 1) return;
-//cria a area de memoria interna
-    PivotBuffer pivot;
-    int i, j;
-//particiona o arquivo
-    Particao(ArqLi, ArqEi, ArqLEs, pivot, Esq, Dir, i, j);
+void PrintInput(const std::shared_ptr<File> &file) {
+    std::cout << "--- Dados a serem ordenados (" << file->quantity()
+              << " registros) ---\n";
+    while (!file->eof()) {
+        const auto page = file->GetNextPage();
+        const uint64_t count = file->lastPageCount();
+        for (uint64_t i = 0; i < count; ++i) {
+            std::cout << FormatItem(page[i]) << '\n';
+        }
+    }
+    std::cout << std::flush;
+    file->Rewind();
+}
 
-//chama primeiro para o subarquivo de menor tamanho
-    if (i - Esq < Dir - j) { 
-        Executar(ArqLi, ArqEi, ArqLEs, Esq, i);
-        Executar(ArqLi, ArqEi, ArqLEs, j, Dir);
-    } else {
-        Executar(ArqLi, ArqEi, ArqLEs, j, Dir);
-        Executar(ArqLi, ArqEi, ArqLEs, Esq, i);
+struct TempBinaryFileGuard {
+    std::filesystem::path path;
+    ~TempBinaryFileGuard() {
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+};
+
+void CopyFileToTempBinary(const std::shared_ptr<File> &file,
+                          const std::filesystem::path &tempPath) {
+    file->Rewind();
+    std::ofstream out(tempPath, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) {
+        throw std::runtime_error(
+            "Falha ao criar arquivo temporário do Quicksort Externo");
+    }
+
+    uint64_t copied = 0;
+    while (!file->eof() && copied < file->quantity()) {
+        const auto page = file->GetNextPage();
+        const uint64_t count = file->lastPageCount();
+        if (count == 0) {
+            break;
+        }
+        out.write(reinterpret_cast<const char *>(page.data()),
+                  static_cast<std::streamsize>(count * sizeof(Item)));
+        if (!out) {
+            throw std::runtime_error(
+                "Falha ao gravar arquivo temporário do Quicksort Externo");
+        }
+        Metrics::RecordDiskWrite();
+        copied += count;
+    }
+
+    if (copied < file->quantity()) {
+        throw std::runtime_error("O arquivo de entrada possui apenas " +
+                                 std::to_string(copied) +
+                                 " registros, mas foram pedidos " +
+                                 std::to_string(file->quantity()));
     }
 }
 
+bool VerifyAndShowBinaryResult(const std::filesystem::path &binPath,
+                               uint64_t quantity, bool print) {
+    std::ifstream in(binPath, std::ios::binary);
+    if (!in.is_open()) {
+        return false;
+    }
 
-void QuickSortExterno::LeSup(std::fstream& ArqLEs, Item& UltLido, int& Ls, bool& OndeLer){
-//posiciona o ponteiro para leitura e armazena em ultlido
-    ArqLEs.seekg((Ls - 1) * sizeof(Item), std::ios::beg);
-    ArqLEs.read(reinterpret_cast<char*>(&UltLido), sizeof(Item));
+    if (print) {
+        std::cout << "--- Resultado da ordenação ---\n";
+    }
 
-//recua o ap para uma pos a esq
+    Item item{};
+    Item previous{};
+    uint64_t count = 0;
+    bool ordered = true;
+
+    while (count < quantity &&
+           in.read(reinterpret_cast<char *>(&item), sizeof(Item))) {
+        if (count > 0 && item.grade < previous.grade) {
+            ordered = false;
+        }
+        if (print) {
+            std::cout << FormatItem(item) << '\n';
+        }
+        previous = item;
+        ++count;
+    }
+
+    if (print) {
+        std::cout << std::flush;
+    }
+
+    return ordered && count == quantity;
+}
+
+}  // namespace
+
+void QuickSortExterno::Ordenar(const std::string &binFilePath, int quantity) {
+    std::fstream file(binFilePath,
+                      std::ios::in | std::ios::out | std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Falha ao abrir arquivo binário: " +
+                                 binFilePath);
+    }
+
+    Executar(file, 1, quantity);
+    file.flush();
+}
+
+void QuickSortExterno::Ordenar(const std::shared_ptr<File> &file) {
+    if (file == nullptr) {
+        throw std::invalid_argument("Arquivo de entrada inválido");
+    }
+
+    std::filesystem::create_directories("./tmp");
+    const std::string tag = std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    const TempBinaryFileGuard tempGuard{"./tmp/quicksort_" + tag + ".bin"};
+
+    Metrics::Reset();
+    Metrics::SetPhase(Phase::Preprocessing);
+    CopyFileToTempBinary(file, tempGuard.path);
+
+    Metrics::SetPhase(Phase::Search);
+    Ordenar(tempGuard.path.string(), static_cast<int>(file->quantity()));
+}
+
+int QuickSortExterno::Run(const std::shared_ptr<File> &file) {
+    try {
+        if (file == nullptr) {
+            throw std::invalid_argument("Arquivo de entrada inválido");
+        }
+
+        const bool print = Log::enableInfo;
+        if (print) {
+            PrintInput(file);
+        }
+
+        std::filesystem::create_directories("./tmp");
+        const std::string tag = std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count());
+        const TempBinaryFileGuard tempGuard{"./tmp/quicksort_" + tag + ".bin"};
+
+        Metrics::Reset();
+        Metrics::SetPhase(Phase::Preprocessing);
+
+        const auto p1Start = std::chrono::steady_clock::now();
+        CopyFileToTempBinary(file, tempGuard.path);
+        const auto p1End = std::chrono::steady_clock::now();
+        const double phase1TimeMs =
+            std::chrono::duration<double, std::milli>(p1End - p1Start).count();
+
+        Log::Info("Arquivo binário temporário preparado para Quicksort Externo");
+
+        Metrics::SetPhase(Phase::Search);
+        const auto p2Start = std::chrono::steady_clock::now();
+        Ordenar(tempGuard.path.string(), static_cast<int>(file->quantity()));
+        const auto p2End = std::chrono::steady_clock::now();
+        const double phase2TimeMs =
+            std::chrono::duration<double, std::milli>(p2End - p2Start).count();
+
+        const PhaseMetrics phase1 = Metrics::Preprocessing();
+        const PhaseMetrics phase2 = Metrics::Search();
+
+        const bool ok =
+            VerifyAndShowBinaryResult(tempGuard.path, file->quantity(), print);
+        if (!ok) {
+            Log::Error("A verificação do resultado falhou: o arquivo não "
+                       "ficou ordenado corretamente");
+            return -1;
+        }
+
+        const uint64_t totalReads = phase1.diskReads + phase2.diskReads;
+        const uint64_t totalWrites = phase1.diskWrites + phase2.diskWrites;
+        const uint64_t totalComparisons =
+            phase1.keyComparisons + phase2.keyComparisons;
+        const double totalSeconds = (phase1TimeMs + phase2TimeMs) / 1000.0;
+
+        char seconds[32];
+        std::snprintf(seconds, sizeof(seconds), "%.6f", totalSeconds);
+
+        std::cout << "=== Método 3: Quicksort Externo ===\n"
+                  << "Registros ordenados:               " << file->quantity()
+                  << '\n'
+                  << "Transferências de leitura:         " << totalReads << '\n'
+                  << "Transferências de escrita:         " << totalWrites
+                  << '\n'
+                  << "Comparações entre chaves:          " << totalComparisons
+                  << '\n'
+                  << "Tempo de execução (s):             " << seconds << '\n'
+                  << "{\"phase1_time_ms\":" << phase1TimeMs
+                  << ",\"phase1_reads\":" << phase1.diskReads
+                  << ",\"phase1_writes\":" << phase1.diskWrites
+                  << ",\"phase2_time_ms\":" << phase2TimeMs
+                  << ",\"phase2_reads\":" << phase2.diskReads
+                  << ",\"comparisons\":" << totalComparisons << "}\n";
+        return 0;
+    } catch (const std::exception &e) {
+        Log::Error(e.what());
+        return -1;
+    }
+}
+
+// Função recursiva para executar o algoritmo principal.
+void QuickSortExterno::Executar(std::fstream &file, int Esq, int Dir) {
+    if (Dir - Esq < 1) {
+        return;
+    }
+
+    PivotBuffer pivot;
+    int i = 0;
+    int j = 0;
+    Particao(file, pivot, Esq, Dir, i, j);
+
+    // Chama primeiro para o subarquivo de menor tamanho.
+    if (i - Esq < Dir - j) {
+        Executar(file, Esq, i);
+        Executar(file, j, Dir);
+    } else {
+        Executar(file, j, Dir);
+        Executar(file, Esq, i);
+    }
+}
+
+void QuickSortExterno::LeSup(std::fstream &file, Item &UltLido, int &Ls,
+                             bool &OndeLer) {
+    file.clear();
+    file.seekg(static_cast<std::streamoff>(Ls - 1) *
+                   static_cast<std::streamoff>(sizeof(Item)),
+               std::ios::beg);
+    file.read(reinterpret_cast<char *>(&UltLido), sizeof(Item));
+    Metrics::RecordDiskRead();
+
     Ls--;
     OndeLer = false;
 }
 
-void QuickSortExterno::LeInf(std::fstream& ArqLi, Item& UltLido, int& Li, bool& OndeLer){
-//posiciona o ponteiro para leitura e armazena em ultlido
+void QuickSortExterno::LeInf(std::fstream &file, Item &UltLido, int &Li,
+                             bool &OndeLer) {
+    file.clear();
+    file.seekg(static_cast<std::streamoff>(Li - 1) *
+                   static_cast<std::streamoff>(sizeof(Item)),
+               std::ios::beg);
+    file.read(reinterpret_cast<char *>(&UltLido), sizeof(Item));
+    Metrics::RecordDiskRead();
 
-    ArqLi.seekg((Li - 1) * sizeof(Item), std::ios::beg);
-    ArqLi.read(reinterpret_cast<char*>(&UltLido), sizeof(Item));
-
-//avanca o ap para uma pos a dir
     Li++;
     OndeLer = true;
 }
 
-void QuickSortExterno::EscreveMax(std::fstream& ArqLEs, const Item& R, int& Es){
-//posiciona o ponteiro para escrita na pos Es com o item R
-    ArqLEs.seekp((Es - 1) * sizeof(Item), std::ios::beg);
-    ArqLEs.write(reinterpret_cast<const char*>(&R), sizeof(Item));
+void QuickSortExterno::EscreveMax(std::fstream &file, const Item &R, int &Es) {
+    file.clear();
+    file.seekp(static_cast<std::streamoff>(Es - 1) *
+                   static_cast<std::streamoff>(sizeof(Item)),
+               std::ios::beg);
+    file.write(reinterpret_cast<const char *>(&R), sizeof(Item));
+    Metrics::RecordDiskWrite();
 
- //recua o ap para uma pos a esq   
     Es--;
 }
 
-void QuickSortExterno::EscreveMin(std::fstream& ArqEi, const Item& R, int& Ei){
-//posiciona o ponteiro para escrita na pos Ei com o item R
-    ArqEi.seekp((Ei - 1) * sizeof(Item), std::ios::beg);
-    ArqEi.write(reinterpret_cast<const char*>(&R), sizeof(Item));
+void QuickSortExterno::EscreveMin(std::fstream &file, const Item &R, int &Ei) {
+    file.clear();
+    file.seekp(static_cast<std::streamoff>(Ei - 1) *
+                   static_cast<std::streamoff>(sizeof(Item)),
+               std::ios::beg);
+    file.write(reinterpret_cast<const char *>(&R), sizeof(Item));
+    Metrics::RecordDiskWrite();
 
-//avanca o ap para uma pos a dir
     Ei++;
-
 }
 
-void QuickSortExterno::Particao(std::fstream& ArqLi, std::fstream& ArqEi, std::fstream& ArqLEs, PivotBuffer& pivot, int Esq, int Dir, int& i, int& j){
-    int Ls = Dir, Es = Dir, Li = Esq, Ei = Esq;// variaveis
-    float Linf = -std::numeric_limits<float>::max();   
-    float Lsup = std::numeric_limits<float>::max();    
+void QuickSortExterno::Particao(std::fstream &file, PivotBuffer &pivot, int Esq,
+                                int Dir, int &i, int &j) {
+    int Ls = Dir;
+    int Es = Dir;
+    int Li = Esq;
+    int Ei = Esq;
+    float Linf = std::numeric_limits<float>::lowest();
+    float Lsup = std::numeric_limits<float>::max();
     bool OndeLer = true;
-    Item UltLido, R;
+    Item UltLido{};
+    Item R{};
 
-    pivot.ClearVector(); //esvaziar por garantia
+    pivot.ClearVector();
     i = Esq - 1;
     j = Dir + 1;
-    
+
     while (Ls >= Li) {
-    // lendo alternado dos extremos, regidstrossd
         if (pivot.OccupiedCOunt() < TAMAREA - 1) {
-            if (OndeLer) LeSup(ArqLEs, UltLido, Ls, OndeLer);
-            else         LeInf(ArqLi, UltLido, Li, OndeLer);
+            if (OndeLer) {
+                LeSup(file, UltLido, Ls, OndeLer);
+            } else {
+                LeInf(file, UltLido, Li, OndeLer);
+            }
             pivot.Insert(UltLido);
             continue;
         }
-    
-    }
 
-    //garante que a leitura nao alcance a escrita (nao pode perder registro)
-        if (Ls == Es)            LeSup(ArqLEs, UltLido, Ls, OndeLer);
-        else if (Li == Ei)       LeInf(ArqLi, UltLido, Li, OndeLer);
-        else if (OndeLer)        LeSup(ArqLEs, UltLido, Ls, OndeLer);
-        else                     LeInf(ArqLi, UltLido, Li, OndeLer);
+        // Garante que a leitura não alcance a escrita.
+        if (Ls == Es) {
+            LeSup(file, UltLido, Ls, OndeLer);
+        } else if (Li == Ei) {
+            LeInf(file, UltLido, Li, OndeLer);
+        } else if (OndeLer) {
+            LeSup(file, UltLido, Ls, OndeLer);
+        } else {
+            LeInf(file, UltLido, Li, OndeLer);
+        }
 
-    //maior que o limite superior: vai direto pra A2
+        // Maior que o limite superior: vai direto para A2.
         Metrics::RecordKeyComparison();
         if (UltLido.grade > Lsup) {
             j = Es;
-            EscreveMax(ArqLEs, UltLido, Es);
+            EscreveMax(file, UltLido, Es);
             continue;
         }
 
-    //menor que o limite inferior: vai direto pra A1
+        // Menor que o limite inferior: vai direto para A1.
         Metrics::RecordKeyComparison();
         if (UltLido.grade < Linf) {
             i = Ei;
-            EscreveMin(ArqEi, UltLido, Ei);
+            EscreveMin(file, UltLido, Ei);
             continue;
         }
 
-    //esta entre os limites, sai subarq menor
+        // Está entre os limites: insere na área interna e remove do menor
+        // subarquivo.
         pivot.Insert(UltLido);
         if (Ei - Esq < Dir - Es) {
             R = pivot.MinRemove();
-            EscreveMin(ArqEi, R, Ei);
+            EscreveMin(file, R, Ei);
             Linf = R.grade;
         } else {
             R = pivot.MaxRemove();
-            EscreveMax(ArqLEs, R, Es);
+            EscreveMax(file, R, Es);
             Lsup = R.grade;
         }
     }
 
-    //descarrega a area no meio do arquivo e ja deixa ordenado
+    // Descarrega a área interna no meio do arquivo, já ordenada.
     while (Ei <= Es) {
         R = pivot.MinRemove();
-        EscreveMin(ArqEi, R, Ei);
+        EscreveMin(file, R, Ei);
     }
 
-    //os 3 fstream sao o mesmo arquivo: manda pro disco o que foi escrito
-    //senao a proxima particao pode ler dado velho do buffer
-    ArqEi.flush();
-    ArqLEs.flush();
-
+    file.flush();
 }

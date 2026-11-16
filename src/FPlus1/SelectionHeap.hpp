@@ -7,8 +7,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include "Common.hpp"
 #include "Item.hpp"
-#include "SortStats.hpp"
 
 namespace FMais1 {
 
@@ -23,7 +23,7 @@ struct HeapEntry {
 template <std::size_t Capacity>
 class SelectionHeap {
   public:
-        explicit SelectionHeap(SortStats &stats) : stats_(stats) {}
+    SelectionHeap() = default;
 
     bool Empty() const { return size_ == 0; }
     bool Full() const { return size_ == Capacity; }
@@ -71,7 +71,7 @@ class SelectionHeap {
         if (a.run != b.run) {
             return a.run < b.run;
         }
-        ++stats_.comparisons;
+        Metrics::RecordKeyComparison();
         return a.item.grade < b.item.grade;
     }
 
@@ -97,7 +97,6 @@ class SelectionHeap {
 
     std::array<HeapEntry, Capacity> data_{};
     std::size_t size_ = 0;
-    SortStats &stats_;
 };
 
 }  // namespace FMais1

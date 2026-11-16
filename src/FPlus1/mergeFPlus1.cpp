@@ -1,19 +1,18 @@
-
 #include "MergeFPlus1.hpp"
 
 #include <array>
 #include <chrono>
 #include <cstdio>
 #include <exception>
-#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
 #include "Common.hpp"
+#include "File.hpp"
 #include "Item.hpp"
-#include "ProvaoReader.hpp"
+#include "Tape.hpp"
 
 namespace {
 
@@ -35,44 +34,112 @@ std::string FormatItem(const Item &item) {
            " | " + TrimRight(item.degree.data(), item.degree.size());
 }
 
-// Mostra os registros de entrada sem alterar as estatísticas.
-void PrintInput(const std::string &path, uint64_t quantity) {
-    ProvaoReader reader(path, quantity);
-    Item item{};
-
-    std::cout << "--- Dados a serem ordenados (" << quantity
+// Mostra os registros de entrada e rebobina o arquivo para a ordenação.
+void PrintInput(const std::shared_ptr<File> &file) {
+    std::cout << "--- Dados a serem ordenados (" << file->quantity()
               << " registros) ---\n";
-    while (reader.Next(item)) {
-        std::cout << FormatItem(item) << '\n';
+    while (!file->eof()) {
+        const auto page = file->GetNextPage();
+        const uint64_t count = file->lastPageCount();
+        for (uint64_t i = 0; i < count; ++i) {
+            std::cout << FormatItem(page[i]) << '\n';
+        }
     }
     std::cout << std::flush;
+    file->Rewind();
 }
 
 }  // namespace
 
-BalancedMergeFPlus1::BalancedMergeFPlus1(std::string inputPath,
-                                         uint64_t quantity)
-    : inputPath_(std::move(inputPath)), quantity_(quantity), heap_(stats_) {
-    // Cria as fitas temporárias junto ao arquivo de entrada.
-    std::filesystem::path dir = std::filesystem::path(this->inputPath_).parent_path();
-    if (dir.empty()) {
-        dir = ".";
-    }
+BalancedMergeFPlus1::BufferedTape::BufferedTape()
+    : tape(std::make_unique<Tape>()) {}
 
-    // Evita colisões entre execuções simultâneas.
-    const std::string tag = std::to_string(
-        std::chrono::steady_clock::now().time_since_epoch().count());
+void BalancedMergeFPlus1::BufferedTape::Clear() {
+    this->tape->Clear();
+    this->runs.clear();
+    this->bufPos = 0;
+    this->currentRunLength = 0;
+    this->totalRecords = 0;
+    this->recordsRead = 0;
+    this->nextRun = 0;
+    this->reading = false;
+}
 
-    for (std::size_t i = 0; i < kTotalTapes; ++i) {
-        this->tapes_.push_back(std::make_unique<RunTape>(
-            dir / ("fita_m2_" + tag + "_" + std::to_string(i) + ".bin"),
-            &this->stats_));
+void BalancedMergeFPlus1::BufferedTape::WriteRecord(const Item &item) {
+    this->buffer[this->bufPos++] = item;
+    ++this->currentRunLength;
+    ++this->totalRecords;
+
+    if (this->bufPos == PAGE_SIZE) {
+        this->tape->WriteBlock(this->buffer);
+        this->bufPos = 0;
     }
 }
 
-void BalancedMergeFPlus1::ReadOrThrow(RunTape &tape, Item &item) {
+void BalancedMergeFPlus1::BufferedTape::EndRun() {
+    if (this->currentRunLength > 0) {
+        this->runs.push_back(this->currentRunLength);
+        this->currentRunLength = 0;
+    }
+}
+
+void BalancedMergeFPlus1::BufferedTape::Rewind() {
+    this->EndRun();
+
+    if (!this->reading && this->bufPos > 0) {
+        this->tape->WriteBlock(this->buffer);
+        this->bufPos = 0;
+    }
+
+    this->tape->Rewind();
+    this->bufPos = PAGE_SIZE;
+    this->recordsRead = 0;
+    this->nextRun = 0;
+    this->reading = true;
+}
+
+bool BalancedMergeFPlus1::BufferedTape::ReadRecord(Item &item) {
+    if (this->recordsRead >= this->totalRecords) {
+        return false;
+    }
+
+    if (this->bufPos >= PAGE_SIZE) {
+        this->buffer = this->tape->ReadBlock();
+        this->bufPos = 0;
+    }
+
+    item = this->buffer[this->bufPos++];
+    ++this->recordsRead;
+    return true;
+}
+
+bool BalancedMergeFPlus1::BufferedTape::HasNextRun() const {
+    return this->nextRun < this->runs.size();
+}
+
+uint64_t BalancedMergeFPlus1::BufferedTape::BeginNextRun() {
+    return this->runs[this->nextRun++];
+}
+
+std::size_t BalancedMergeFPlus1::BufferedTape::NumRuns() const {
+    return this->runs.size();
+}
+
+BalancedMergeFPlus1::BalancedMergeFPlus1(std::shared_ptr<File> file)
+    : file_(std::move(file)) {
+    if (this->file_ == nullptr) {
+        throw std::invalid_argument("Arquivo de entrada inválido");
+    }
+
+    for (std::size_t i = 0; i < kTotalTapes; ++i) {
+        this->tapes_.push_back(std::make_unique<BufferedTape>());
+    }
+}
+
+void BalancedMergeFPlus1::ReadOrThrow(BufferedTape &tape, Item &item) {
     if (!tape.ReadRecord(item)) {
-        throw std::runtime_error("Fim inesperado de fita durante a intercalação");
+        throw std::runtime_error(
+            "Fim inesperado de fita durante a intercalação");
     }
 }
 
@@ -87,15 +154,29 @@ bool BalancedMergeFPlus1::AnyInputHasRun() const {
 
 // Gera blocos ordenados por seleção por substituição.
 void BalancedMergeFPlus1::GenerateRuns() {
-    ProvaoReader input(this->inputPath_, this->quantity_);
+    this->file_->Rewind();
+
+    std::array<Item, PAGE_SIZE> page{};
+    uint64_t pageIdx = 0;
+    uint64_t pageCount = 0;
     uint64_t consumed = 0;
 
-    // Lê um registro e atualiza as estatísticas.
     auto readInput = [&](Item &item) {
-        if (!input.Next(item)) {
+        if (consumed >= this->file_->quantity()) {
             return false;
         }
-        ++this->stats_.reads;
+        if (pageIdx >= pageCount) {
+            if (this->file_->eof()) {
+                return false;
+            }
+            page = this->file_->GetNextPage();
+            pageCount = this->file_->lastPageCount();
+            pageIdx = 0;
+            if (pageCount == 0) {
+                return false;
+            }
+        }
+        item = page[pageIdx++];
         ++consumed;
         return true;
     };
@@ -136,7 +217,7 @@ void BalancedMergeFPlus1::GenerateRuns() {
 
         if (readInput(root.item)) {
             // Uma comparação de chaves: o novo registro ainda cabe no bloco?
-            ++this->stats_.comparisons;
+            Metrics::RecordKeyComparison();
             root.run = (root.item.grade < lastKey) ? lastRun + 1 : lastRun;
             this->heap_.FixRoot();
         } else {
@@ -144,18 +225,19 @@ void BalancedMergeFPlus1::GenerateRuns() {
         }
     }
     this->tapes_[tapeIndex]->EndRun();
-    this->stats_.runs = runCount;
+    this->runs_ = runCount;
 
-    if (consumed < this->quantity_) {
+    if (consumed < this->file_->quantity()) {
         throw std::runtime_error(
             "O arquivo de entrada possui apenas " + std::to_string(consumed) +
-            " registros, mas foram pedidos " + std::to_string(this->quantity_));
+            " registros, mas foram pedidos " +
+            std::to_string(this->file_->quantity()));
     }
 }
 
 // Intercala uma rodada das fitas de entrada na fita de saída.
 void BalancedMergeFPlus1::MergePass() {
-    RunTape &out = *this->tapes_[kInputTapes];
+    BufferedTape &out = *this->tapes_[kInputTapes];
     out.Clear();
     for (std::size_t t = 0; t < kInputTapes; ++t) {
         this->tapes_[t]->Rewind();
@@ -169,7 +251,7 @@ void BalancedMergeFPlus1::MergePass() {
 
         // Carrega o primeiro registro de cada bloco da rodada.
         for (std::size_t t = 0; t < kInputTapes; ++t) {
-            RunTape &in = *this->tapes_[t];
+            BufferedTape &in = *this->tapes_[t];
             if (!in.HasNextRun()) {
                 continue;
             }
@@ -207,14 +289,14 @@ void BalancedMergeFPlus1::MergePass() {
 
 // Redistribui os blocos de saída entre as fitas de entrada.
 void BalancedMergeFPlus1::Redistribute() {
-    RunTape &out = *this->tapes_[kInputTapes];
+    BufferedTape &out = *this->tapes_[kInputTapes];
     out.Rewind();
 
     Item record{};
     const std::size_t runCount = out.NumRuns();
     for (std::size_t j = 0; j < runCount; ++j) {
         const uint64_t length = out.BeginNextRun();
-        RunTape &target = *this->tapes_[j % kInputTapes];
+        BufferedTape &target = *this->tapes_[j % kInputTapes];
 
         for (uint64_t k = 0; k < length; ++k) {
             ReadOrThrow(out, record);
@@ -225,22 +307,30 @@ void BalancedMergeFPlus1::Redistribute() {
 }
 
 void BalancedMergeFPlus1::Sort() {
-    const auto start = std::chrono::steady_clock::now();
+    Metrics::Reset();
+    Metrics::SetPhase(Phase::Preprocessing);
 
+    const auto p1Start = std::chrono::steady_clock::now();
     this->GenerateRuns();
-    Log::Info("Blocos gerados pela seleção por substituição: " +
-              std::to_string(this->stats_.runs));
+    const auto p1End = std::chrono::steady_clock::now();
+    this->phase1TimeMs_ =
+        std::chrono::duration<double, std::milli>(p1End - p1Start).count();
 
-    if (this->stats_.runs <= 1) {
-            // Um único bloco já está ordenado.
+    Log::Info("Blocos gerados pela seleção por substituição: " +
+              std::to_string(this->runs_));
+
+    Metrics::SetPhase(Phase::Search);
+    const auto p2Start = std::chrono::steady_clock::now();
+    if (this->runs_ <= 1) {
+        // Um único bloco já está ordenado.
         this->result_ = this->tapes_[0].get();
     } else {
         while (true) {
             this->MergePass();
-            ++this->stats_.mergePasses;
+            ++this->mergePasses_;
 
-            RunTape &out = *this->tapes_[kInputTapes];
-            Log::Info("Passo " + std::to_string(this->stats_.mergePasses) +
+            BufferedTape &out = *this->tapes_[kInputTapes];
+            Log::Info("Passo " + std::to_string(this->mergePasses_) +
                       " de intercalação: " + std::to_string(out.NumRuns()) +
                       " bloco(s) na fita de saída");
 
@@ -251,9 +341,9 @@ void BalancedMergeFPlus1::Sort() {
             this->Redistribute();
         }
     }
-
-    const auto end = std::chrono::steady_clock::now();
-    this->stats_.seconds = std::chrono::duration<double>(end - start).count();
+    const auto p2End = std::chrono::steady_clock::now();
+    this->phase2TimeMs_ =
+        std::chrono::duration<double, std::milli>(p2End - p2Start).count();
 }
 
 bool BalancedMergeFPlus1::CheckAndShowResult(bool print) {
@@ -262,7 +352,7 @@ bool BalancedMergeFPlus1::CheckAndShowResult(bool print) {
     }
 
     // A leitura de conferência não entra nas estatísticas.
-    this->result_->SetStats(nullptr);
+    this->result_->tape->SetRecordMetrics(false);
     this->result_->Rewind();
 
     if (print) {
@@ -288,19 +378,23 @@ bool BalancedMergeFPlus1::CheckAndShowResult(bool print) {
         std::cout << std::flush;
     }
 
-    return ordered && count == this->quantity_;
+    this->result_->tape->SetRecordMetrics(true);
+    return ordered && count == this->file_->quantity();
 }
 
-int RunMethod2(const std::string &inputPath, uint64_t quantity) {
+int RunMethod2(const std::shared_ptr<File> &file) {
     try {
         const bool print = Log::enableInfo;  // opção -P
 
         if (print) {
-            PrintInput(inputPath, quantity);
+            PrintInput(file);
         }
 
-        BalancedMergeFPlus1 sorter(inputPath, quantity);
+        BalancedMergeFPlus1 sorter(file);
         sorter.Sort();
+
+        const PhaseMetrics phase1 = Metrics::Preprocessing();
+        const PhaseMetrics phase2 = Metrics::Search();
 
         const bool ok = sorter.CheckAndShowResult(print);
         if (!ok) {
@@ -309,19 +403,35 @@ int RunMethod2(const std::string &inputPath, uint64_t quantity) {
             return -1;
         }
 
-        const SortStats &s = sorter.stats();
+        const uint64_t totalReads = phase1.diskReads + phase2.diskReads;
+        const uint64_t totalWrites = phase1.diskWrites + phase2.diskWrites;
+        const uint64_t totalComparisons =
+            phase1.keyComparisons + phase2.keyComparisons;
+        const double totalSeconds =
+            (sorter.phase1TimeMs() + sorter.phase2TimeMs()) / 1000.0;
+
         char seconds[32];
-        std::snprintf(seconds, sizeof(seconds), "%.6f", s.seconds);
+        std::snprintf(seconds, sizeof(seconds), "%.6f", totalSeconds);
 
         std::cout << "=== Método 2: intercalação balanceada f+1 fitas "
                      "(seleção por substituição) ===\n"
-                  << "Registros ordenados:               " << quantity << '\n'
-                  << "Blocos gerados:                    " << s.runs << '\n'
-                  << "Passos de intercalação:            " << s.mergePasses << '\n'
-                  << "Transferências de leitura:         " << s.reads << '\n'
-                  << "Transferências de escrita:         " << s.writes << '\n'
-                  << "Comparações entre chaves:          " << s.comparisons << '\n'
-                  << "Tempo de execução (s):             " << seconds << '\n';
+                  << "Registros ordenados:               " << file->quantity()
+                  << '\n'
+                  << "Blocos gerados:                    " << sorter.runs()
+                  << '\n'
+                  << "Passos de intercalação:            "
+                  << sorter.mergePasses() << '\n'
+                  << "Transferências de leitura (blocos):" << totalReads << '\n'
+                  << "Transferências de escrita (blocos):" << totalWrites << '\n'
+                  << "Comparações entre chaves:          " << totalComparisons
+                  << '\n'
+                  << "Tempo de execução (s):             " << seconds << '\n'
+                  << "{\"phase1_time_ms\":" << sorter.phase1TimeMs()
+                  << ",\"phase1_reads\":" << phase1.diskReads
+                  << ",\"phase1_writes\":" << phase1.diskWrites
+                  << ",\"phase2_time_ms\":" << sorter.phase2TimeMs()
+                  << ",\"phase2_reads\":" << phase2.diskReads
+                  << ",\"comparisons\":" << totalComparisons << "}\n";
         return 0;
     } catch (const std::exception &e) {
         Log::Error(e.what());
