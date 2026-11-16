@@ -1,7 +1,12 @@
-#include <cstdlib>
+#include <charconv>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <memory>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <vector>
 
 #include "BalancedMerge2F/BalancedMerge2F.hpp"
 #include "Common.hpp"
@@ -21,38 +26,22 @@ enum FileType : uint8_t {
     Unordered = 3,
 };
 
-int main(int argc, char *argv[]) {
-    constexpr int requiredArgC = 4;
-    if (argc < requiredArgC) {
-        Log::Error("Use ordena <method> <quantity> <situation> [-P]");
-        return -1;
-    }
+namespace {
 
-    constexpr int optionalLastArgPos = 4;
-    if (argc == (optionalLastArgPos + 1) &&
-        std::string(argv[optionalLastArgPos]) == std::string("-P")) {
-        Log::enableInfo = true;
+bool ParseStrictLong(std::string_view text, long &out) {
+    if (text.empty()) {
+        return false;
     }
+    const char *begin = text.data();
+    const char *end = begin + text.size();
+    const auto [ptr, ec] = std::from_chars(begin, end, out);
+    return ec == std::errc{} && ptr == end;
+}
 
-    long int const quantity = std::atol(argv[2]);
-    constexpr int maxFileSize = 471705;
-    if (quantity > maxFileSize || quantity <= 0) {
-        Log::Error("<quantity> must be a value grater than 0 and equal or "
-                   "less than 2000000");
-        return -1;
-    }
-
-    int const situationValue = std::atoi(argv[3]);
-    if (situationValue < FileType::Ascending ||
-        situationValue > FileType::Unordered) {
-        Log::Error(
-            "<situation> must be one of these: 1 -> ascending file; 2 -> "
-            "descending file; 3 -> unordered file");
-        return -1;
-    }
-
+std::filesystem::path ResolveInputFilePath(const char *argv0,
+                                           FileType situation) {
     std::string fileTypeName;
-    switch (static_cast<FileType>(situationValue)) {
+    switch (situation) {
     case Ascending:
         fileTypeName = "provao_ascending";
         break;
@@ -60,40 +49,97 @@ int main(int argc, char *argv[]) {
         fileTypeName = "provao_descending";
         break;
     case Unordered:
-        fileTypeName = "provao_shuffled";
+        fileTypeName = "provao_unordered";
         break;
     }
 
-    // std::filesystem is used because the old implementation had an issue with
-    // the location of the executable
-    // The generator create the file at ./tmp but the old code searched at
-    // ./build/tmp
-    // I've update it to handle these two cases.
-    std::filesystem::path filePath = "tmp/" + fileTypeName;
-    if (!std::filesystem::exists(filePath)) {
-        const auto execPath = std::filesystem::path(argv[0]);
-        const auto candidateParent =
-            execPath.parent_path() / ".." / "tmp" / fileTypeName;
-        const auto candidateSame =
-            execPath.parent_path() / "tmp" / fileTypeName;
+    const auto execDir = std::filesystem::path(argv0).parent_path();
+    std::vector<std::filesystem::path> candidates = {
+        std::filesystem::path("tmp") / fileTypeName,
+        execDir / ".." / "tmp" / fileTypeName,
+        execDir / "tmp" / fileTypeName,
+    };
 
-        if (std::filesystem::exists(candidateParent)) {
-            filePath = candidateParent;
-        } else if (std::filesystem::exists(candidateSame)) {
-            filePath = candidateSame;
+    // Situação 3 corresponde ao PROVAO.TXT original caso provao_unordered ainda
+    // não tenha sido extraído em tmp/.
+    if (situation == Unordered) {
+        for (const char *originalName : {"PROVAO.TXT", "PROVAO.txt"}) {
+            candidates.emplace_back(originalName);
+            candidates.push_back(execDir / ".." / originalName);
+            candidates.push_back(execDir / originalName);
         }
     }
-    int const methodValue = std::atoi(argv[1]);
-    if (methodValue < MethodType::BalancedMerge2F ||
-        methodValue > MethodType::ExternalQuickSort) {
-        Log::Error("<method> must be one of these: 1 -> 2f balanced merge; 2 "
-                   "-> f+1 balanced merge; 3 -> external quicksort");
+
+    for (const auto &candidate : candidates) {
+        if (std::filesystem::exists(candidate)) {
+            return candidate;
+        }
+    }
+    return candidates.front();
+}
+
+}  // namespace
+
+int main(int argc, char *argv[]) {
+    constexpr int requiredArgC = 4;
+    constexpr int maxArgC = 5;
+    if (argc < requiredArgC) {
+        Log::Error("Missing arguments. Use: ordena <method> <quantity> "
+                   "<situation> [-P]");
+        return -1;
+    }
+    if (argc > maxArgC) {
+        Log::Error("Too many arguments. Use: ordena <method> <quantity> "
+                   "<situation> [-P]");
         return -1;
     }
 
+    if (argc == maxArgC) {
+        constexpr int optionalArgPos = 4;
+        if (std::string_view(argv[optionalArgPos]) != "-P") {
+            Log::Error("Invalid optional argument '" +
+                       std::string(argv[optionalArgPos]) +
+                       "'. Expected [-P]. Use: ordena <method> <quantity> "
+                       "<situation> [-P]");
+            return -1;
+        }
+        Log::enableInfo = true;
+    }
+
+    long methodValue = 0;
+    if (!ParseStrictLong(argv[1], methodValue) ||
+        methodValue < MethodType::BalancedMerge2F ||
+        methodValue > MethodType::ExternalQuickSort) {
+        Log::Error("<method> must be an integer: 1 -> 2f balanced merge; "
+                   "2 -> f+1 balanced merge; 3 -> external quicksort");
+        return -1;
+    }
+
+    long quantity = 0;
+    constexpr long maxFileSize = 471705;
+    if (!ParseStrictLong(argv[2], quantity) || quantity <= 0 ||
+        quantity > maxFileSize) {
+        Log::Error("<quantity> must be an integer greater than 0 and less "
+                   "than or equal to 471705");
+        return -1;
+    }
+
+    long situationValue = 0;
+    if (!ParseStrictLong(argv[3], situationValue) ||
+        situationValue < FileType::Ascending ||
+        situationValue > FileType::Unordered) {
+        Log::Error("<situation> must be an integer: 1 -> ascending file; "
+                   "2 -> descending file; 3 -> unordered file");
+        return -1;
+    }
+
+    const std::filesystem::path filePath = ResolveInputFilePath(
+        argv[0], static_cast<FileType>(situationValue));
+
     std::shared_ptr<File> file;
     try {
-        file = std::make_shared<File>(filePath.string(), quantity);
+        file = std::make_shared<File>(filePath.string(),
+                                      static_cast<uint64_t>(quantity));
     } catch (const std::exception &e) {
         Log::Error(e.what());
         return -1;

@@ -25,19 +25,6 @@ class BalancedMerge2F {
     static uint64_t comparisonCount;
 
   private:
-    struct Slot {
-        Item item;
-        bool marked;
-
-        bool operator>(const Slot& b) const {
-            if (marked != b.marked) {
-                return marked;
-            }
-            Metrics::RecordKeyComparison();
-            return item > b.item;
-        }
-    };
-
     MergeConfig cfg_;
     double phase1TimeMs_ = 0.0;
     double phase2TimeMs_ = 0.0;

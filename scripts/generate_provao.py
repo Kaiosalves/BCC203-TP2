@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Generate `provao_shuffled`, `provao_ascending`, and `provao_descending` in
+Generate `provao_unordered`, `provao_ascending`, and `provao_descending` in
 `tmp/` from an existing `PROVAO.TXT` dataset.
+
+Situation 3 (`provao_unordered`) preserves the original order of `PROVAO.TXT`,
+as specified by the assignment.
 """
 
 from __future__ import annotations
 
 import argparse
-import random
 from pathlib import Path
 
-DEFAULT_SEED = 42
 DEFAULT_INPUT_CANDIDATES = (
     Path("PROVAO.TXT"),
     Path("PROVAO.txt"),
@@ -57,7 +58,7 @@ def write_dataset(path: Path, lines: list[bytes]) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate provao_shuffled, provao_ascending, and provao_descending from PROVAO.TXT."
+        description="Generate provao_unordered, provao_ascending, and provao_descending from PROVAO.TXT."
     )
     parser.add_argument(
         "-i",
@@ -73,12 +74,6 @@ def parse_args() -> argparse.Namespace:
         default=Path("tmp"),
         help="Output directory for generated files (default: tmp).",
     )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=DEFAULT_SEED,
-        help=f"PRNG seed for shuffling (default: {DEFAULT_SEED}).",
-    )
     return parser.parse_args()
 
 
@@ -92,12 +87,10 @@ def main() -> None:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    rng = random.Random(args.seed)
-    shuffled = list(records)
-    rng.shuffle(shuffled)
-    shuffled_path = args.output_dir / "provao_shuffled"
-    write_dataset(shuffled_path, [rec[2] for rec in shuffled])
-    print(f"Wrote {shuffled_path}")
+    # Situação 3: ordem original desordenada aleatoriamente de PROVAO.TXT.
+    unordered_path = args.output_dir / "provao_unordered"
+    write_dataset(unordered_path, [rec[2] for rec in records])
+    print(f"Wrote {unordered_path}")
 
     records.sort(key=lambda rec: (rec[0], rec[1]))
     ascending_path = args.output_dir / "provao_ascending"

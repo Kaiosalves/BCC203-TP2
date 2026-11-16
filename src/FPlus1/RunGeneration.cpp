@@ -87,6 +87,9 @@ void BalancedMergeFPlus1::GenerateRuns() {
         }
     }
     this->tapes_[tapeIndex]->EndRun();
+    for (std::size_t t = 0; t < kInputTapes; ++t) {
+        this->tapes_[t]->Flush();
+    }
     this->runs_ = runCount;
 
     if (consumed < this->file_->quantity()) {

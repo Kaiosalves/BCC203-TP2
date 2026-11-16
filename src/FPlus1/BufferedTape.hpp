@@ -20,6 +20,7 @@ class BufferedTape {
     void Clear();
     void WriteRecord(const Item &item);
     void EndRun();
+    void Flush();
     void Rewind();
     bool ReadRecord(Item &item);
 

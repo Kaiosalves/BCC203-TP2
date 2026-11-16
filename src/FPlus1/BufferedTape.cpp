@@ -33,13 +33,17 @@ void BufferedTape::EndRun() {
     }
 }
 
-void BufferedTape::Rewind() {
+void BufferedTape::Flush() {
     this->EndRun();
 
     if (!this->reading_ && this->bufPos_ > 0) {
         this->tape_->WriteBlock(this->buffer_);
         this->bufPos_ = 0;
     }
+}
+
+void BufferedTape::Rewind() {
+    this->Flush();
 
     this->tape_->Rewind();
     this->bufPos_ = PAGE_SIZE;

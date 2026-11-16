@@ -67,6 +67,8 @@ void BalancedMergeFPlus1::MergePass() {
         out.EndRun();
     }
 
+    out.Flush();
+
     // As fitas de entrada foram totalmente consumidas.
     for (std::size_t t = 0; t < kInputTapes; ++t) {
         this->tapes_[t]->Clear();
@@ -89,5 +91,9 @@ void BalancedMergeFPlus1::Redistribute() {
             target.WriteRecord(record);
         }
         target.EndRun();
+    }
+
+    for (std::size_t t = 0; t < kInputTapes; ++t) {
+        this->tapes_[t]->Flush();
     }
 }

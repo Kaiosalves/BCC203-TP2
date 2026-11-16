@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -9,9 +10,17 @@
 
 class QuickSortExterno {
   private:
-    static void Executar(std::fstream &file, int Esq, int Dir);
+    struct TransferStats {
+        uint64_t recordReads = 0;
+        uint64_t recordWrites = 0;
+    };
+
+    static void Executar(std::fstream &file, int Esq, int Dir,
+                         TransferStats &stats);
+    static void SortSmallPartition(std::fstream &file, int Esq, int Dir,
+                                   TransferStats &stats);
     static void Particao(std::fstream &file, PivotBuffer &pivot, int Esq,
-                         int Dir, int &i, int &j);
+                         int Dir, int &i, int &j, TransferStats &stats);
 
   public:
     static void Ordenar(const std::string &binFilePath, int quantity);

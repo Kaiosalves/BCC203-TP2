@@ -188,7 +188,7 @@ ordena <metodo> <quantidade> <situacao> [-P]
 onde os parâmetros representam:
 \begin{itemize}
     \item \texttt{<metodo>}: Identificador numérico inteiro do algoritmo a ser executado (1 para Intercalação $2f$ fitas, 2 para Intercalação $f+1$ fitas, ou 3 para Quicksort Externo);
-    \item \texttt{<quantidade>}: Número inteiro $n$ de registros a serem ordenados ($100 \le n \le 471.705$);
+    \item \texttt{<quantidade>}: Número inteiro $n$ de registros a serem ordenados ($1 \le n \le 471.705$);
     \item \texttt{<situacao>}: Estado inicial do arquivo (1 para ordenado ascendente, 2 para descendente, e 3 para desordenado);
     \item \texttt{[-P]}: Parâmetro opcional que comuta o modo de exibição detalhado, imprimindo os registros dos alunos antes da ordenação e o resultado consolidado após a ordenação.
 \end{itemize}
@@ -242,10 +242,10 @@ Sistema de Arquivos & ext4 com montagem padrão e suporte a escrita direta \\
 \end{table}
 
 \subsection{Metodologia Experimental e Métricas Coletadas}
-A instrumentação do código é orientada pelo módulo singleton \texttt{Metrics}, garantindo que nenhuma instrução de I/O em fitas virtuais ou avaliação de predicado de ordenação passe sem contabilização precisa. Para cada teste de ordenação executado, quatro grandezas fundamentais são monitoradas:
+A instrumentação do código é orientada pelo módulo singleton \texttt{Metrics}, garantindo que nenhuma instrução de I/O em memória secundária ou avaliação de predicado de ordenação passe sem contabilização precisa. Para assegurar comparabilidade direta entre os três algoritmos, todas as métricas de transferência entre memória externa e memória interna são padronizadas em \textbf{blocos (páginas) de tamanho fixo $B_{\text{pag}} = 100$ registros} (\texttt{PAGE\_SIZE = 100}). Para cada teste de ordenação executado, quatro grandezas fundamentais são monitoradas:
 \begin{enumerate}
-    \item \textbf{Transferências de Leitura ($R$):} Número total de transferências de registros efetuadas da memória secundária (arquivos de dados originais ou fitas magnéticas virtuais) para a memória interna de trabalho;
-    \item \textbf{Transferências de Escrita ($W$):} Número total de transferências de registros emitidos a partir dos buffers da memória interna para gravação física nos arquivos de saída ou fitas magnéticas externas;
+    \item \textbf{Transferências de Leitura ($R$, em blocos):} Número total de transferências de blocos de até $100$ registros efetuadas da memória secundária (arquivo binário de entrada ou fitas magnéticas virtuais) para a memória interna de trabalho. Nos Métodos 1 e 2, a leitura ocorre fisicamente em páginas de até $100$ registros; no Método 3 (Quicksort Externo), os acessos posicionais por registro são acumulados e convertidos para o equivalente em blocos via $\lceil R_{\text{reg}} / 100 \rceil$;
+    \item \textbf{Transferências de Escrita ($W$, em blocos):} Número total de transferências de blocos de até $100$ registros emitidos da memória interna para gravação em memória secundária (fitas magnéticas virtuais nos Métodos 1 e 2, ou conversão equivalente $\lceil W_{\text{reg}} / 100 \rceil$ das gravações posicionais no Método 3);
     \item \textbf{Comparações de Chaves ($C$):} Quantidade exata de comparações relacionais ($<$, $\le$, $>$, $\ge$) efetuadas sobre o campo \texttt{grade} (nota) dos registros durante as etapas de ordenação interna, manutenção do heap de seleção por substituição e intercalação;
     \item \textbf{Tempo de Execução ($T$, em milissegundos):} Intervalo cronometrado absoluto entre o início formal da rotina de ordenação externa e o fechamento do arquivo ordenado definitivo, mensurado com resolução de nanossegundos via \texttt{std::chrono::}\allowbreak\texttt{high\_resolution\_clock}.
 \end{enumerate}
@@ -621,11 +621,13 @@ A Figura~\ref{fig:fluxo_quicksort} ilustra a partição bidirecional do arquivo 
 \end{figure}
 
 \subsubsection{Resultados Experimentais e Tabela de Benchmark}
-A Tabela~\ref{tab:bench_quicksort} reporta a estrutura de dados consolidada para o Quicksort Externo nas três situações e nos seis volumes de dados.
+Diferentemente dos Métodos 1 e 2 (que realizam E/S sequencial paginada em blocos de \texttt{PAGE\_SIZE = 100} registros), o Quicksort Externo executa acessos aleatórios posicionais registro a registro nas extremidades $L_i$, $L_s$, $E_i$ e $E_s$. Para manter a mesma unidade de comparação em todos os algoritmos, a instrumentação do Método 3 acumula o total de registros lidos ($R_{\text{reg}}$) e escritos ($W_{\text{reg}}$) ao longo de toda a execução recursiva e reporta as transferências em forma de blocos de $100$ registros, calculadas por $\lceil R_{\text{reg}} / 100 \rceil$ e $\lceil W_{\text{reg}} / 100 \rceil$.
+
+A Tabela~\ref{tab:bench_quicksort} reporta as métricas consolidadas para o Quicksort Externo nessa unidade padronizada (blocos de $100$ registros) nas três situações e nos seis volumes de dados.
 
 \begin{table}[H]
 \centering
-\caption{Benchmark experimental -- Quicksort Externo ($M=10$).}
+\caption{Benchmark experimental -- Quicksort Externo ($M=10$, transferências em blocos de $100$ registros).}
 \label{tab:bench_quicksort}
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{lr rrr rrr}
@@ -634,28 +636,28 @@ A Tabela~\ref{tab:bench_quicksort} reporta a estrutura de dados consolidada para
 \cmidrule(lr){3-8}
 & & \multicolumn{3}{c}{\textbf{Tempo (ms)}} & \textbf{Leituras} & \textbf{Escritas} & \textbf{Comparações} \\
 \cmidrule(lr){3-5}
-\textbf{Situação} & \textbf{Qtd ($n$)} & \textbf{p50} & \textbf{p75} & \textbf{p99} & \textbf{(p50)} & \textbf{(p50)} & \textbf{(p50)} \\
+\textbf{Situação} & \textbf{Qtd ($n$)} & \textbf{p50} & \textbf{p75} & \textbf{p99} & \textbf{(blocos, p50)} & \textbf{(blocos, p50)} & \textbf{(p50)} \\
 \midrule
-Ascendente  & 100 & 0.10 & 0.11 & 0.12 & 100 & 100 & 1.892 \\
-Ascendente  & 200 & 0.21 & 0.23 & 0.23 & 200 & 200 & 3.892 \\
-Ascendente  & 2.000 & 2.08 & 2.08 & 2.09 & 2.000 & 2.000 & 39.892 \\
-Ascendente  & 20.000 & 20.38 & 20.50 & 20.57 & 20.000 & 20.000 & 399.892 \\
-Ascendente  & 200.000 & 205.94 & 206.31 & 208.39 & 200.000 & 200.000 & 4.500.930 \\
-Ascendente  & 471.705 & 486.96 & 487.48 & 487.51 & 471.705 & 471.705 & 10.610.910 \\
+Ascendente  & 100 & 0.10 & 0.11 & 0.12 & 1 & 1 & 1.892 \\
+Ascendente  & 200 & 0.21 & 0.23 & 0.23 & 2 & 2 & 3.892 \\
+Ascendente  & 2.000 & 2.08 & 2.08 & 2.09 & 20 & 20 & 39.892 \\
+Ascendente  & 20.000 & 20.38 & 20.50 & 20.57 & 200 & 200 & 399.892 \\
+Ascendente  & 200.000 & 205.94 & 206.31 & 208.39 & 2.000 & 2.000 & 4.500.930 \\
+Ascendente  & 471.705 & 486.96 & 487.48 & 487.51 & 4.718 & 4.718 & 10.610.910 \\
 \midrule
-Descendente & 100 & 0.11 & 0.11 & 0.11 & 100 & 100 & 2.148 \\
-Descendente & 200 & 0.20 & 0.22 & 0.27 & 200 & 200 & 4.418 \\
-Descendente & 2.000 & 2.04 & 2.05 & 2.05 & 2.000 & 2.000 & 44.342 \\
-Descendente & 20.000 & 20.45 & 20.52 & 20.52 & 20.000 & 20.000 & 441.281 \\
-Descendente & 200.000 & 207.71 & 207.91 & 207.99 & 200.000 & 200.000 & 4.400.552 \\
-Descendente & 471.705 & 490.00 & 490.59 & 491.36 & 471.705 & 471.705 & 10.376.546 \\
+Descendente & 100 & 0.11 & 0.11 & 0.11 & 1 & 1 & 2.148 \\
+Descendente & 200 & 0.20 & 0.22 & 0.27 & 2 & 2 & 4.418 \\
+Descendente & 2.000 & 2.04 & 2.05 & 2.05 & 20 & 20 & 44.342 \\
+Descendente & 20.000 & 20.45 & 20.52 & 20.52 & 200 & 200 & 441.281 \\
+Descendente & 200.000 & 207.71 & 207.91 & 207.99 & 2.000 & 2.000 & 4.400.552 \\
+Descendente & 471.705 & 490.00 & 490.59 & 491.36 & 4.718 & 4.718 & 10.376.546 \\
 \midrule
-Desordenado & 100 & 0.28 & 0.29 & 0.30 & 283 & 283 & 2.878 \\
-Desordenado & 200 & 0.70 & 0.71 & 0.72 & 720 & 720 & 6.217 \\
-Desordenado & 2.000 & 12.86 & 12.87 & 12.89 & 12.826 & 12.826 & 86.166 \\
-Desordenado & 20.000 & 169.22 & 169.65 & 169.94 & 169.178 & 169.178 & 1.029.059 \\
-Desordenado & 200.000 & 1859.76 & 1859.82 & 1860.21 & 1.836.023 & 1.836.023 & 11.154.675 \\
-Desordenado & 471.705 & 4386.82 & 4402.01 & 4402.28 & 4.353.896 & 4.353.896 & 26.573.783 \\
+Desordenado & 100 & 0.28 & 0.29 & 0.30 & 3 & 3 & 2.878 \\
+Desordenado & 200 & 0.70 & 0.71 & 0.72 & 8 & 8 & 6.217 \\
+Desordenado & 2.000 & 12.86 & 12.87 & 12.89 & 129 & 129 & 86.166 \\
+Desordenado & 20.000 & 169.22 & 169.65 & 169.94 & 1.692 & 1.692 & 1.029.059 \\
+Desordenado & 200.000 & 1859.76 & 1859.82 & 1860.21 & 18.361 & 18.361 & 11.154.675 \\
+Desordenado & 471.705 & 4386.82 & 4402.01 & 4402.28 & 43.539 & 43.539 & 26.573.783 \\
 \bottomrule
 \end{tabular}%
 }
@@ -664,7 +666,7 @@ Desordenado & 471.705 & 4386.82 & 4402.01 & 4402.28 & 4.353.896 & 4.353.896 & 26
 \subsubsection{Discussão Analítica e Comportamento Esperado}
 O comportamento assintótico e operacional do Quicksort Externo exibe particularidades notáveis em virtude do seu mecanismo de partição:
 \begin{itemize}
-    \item \textbf{Custo de I/O em Níveis de Recursão:} Em cada nível da árvore de particionamento, todos os elementos da partição em análise devem ser lidos da memória secundária e posteriormente gravados nos respectivos subarquivos em disco. Logo, cada nível recursivo consome aproximadamente $2n$ transferências de registros (1 leitura e 1 escrita por registro). No caso médio balanceado, a profundidade da recursão é proporcional a:
+    \item \textbf{Custo de I/O em Níveis de Recursão:} Em cada nível da árvore de particionamento, todos os elementos da partição em análise são lidos da memória secundária e posteriormente gravados nos respectivos subarquivos em disco. Logo, cada nível recursivo consome aproximadamente $2n$ acessos a registros, equivalentes a $\approx 2 \lceil n / 100 \rceil$ transferências de blocos na métrica padronizada de \texttt{PAGE\_SIZE = 100}. No caso médio balanceado, a profundidade da recursão é proporcional a:
     \begin{equation}
         H_{\text{médio}} \approx O(\log_{M+1} n) = O(\log_{11} n),
     \end{equation}
@@ -682,7 +684,7 @@ O comportamento assintótico e operacional do Quicksort Externo exibe particular
 A análise comparativa integrada dos três métodos elucida os trade-offs fundamentais existentes entre capacidade de memória primária, multiplicidade de dispositivos de armazenamento externo e estabilidade assintótica.
 
 \subsection{Custo de Transferências de Memória Externa (Leitura e Escrita)}
-O custo de I/O representa a métrica dominante do desempenho global:
+O custo de I/O representa a métrica dominante do desempenho global, sendo expresso de forma uniforme em blocos de $100$ registros (\texttt{PAGE\_SIZE = 100}) nos três algoritmos:
 \begin{itemize}
     \item \textbf{Intercalação com $2f$ Fitas ($10 \times 10$):} Apresenta extrema previsibilidade. Na fase de geração de blocos, efetua estritamente $n$ leituras e $n$ escritas. Cada passada de intercalação adiciona exatamente $n$ leituras e $n$ escritas. Com $f = 10$, a quantidade de passadas cresce com base no logaritmo decimal do número de blocos, contendo o tráfego total de E/S mesmo para a escala máxima de 471.705 registros;
     \item \textbf{Intercalação com $f+1$ Fitas ($19 \times 1$):} Beneficia-se de blocos iniciais maiores ($E[\text{bloco}] \approx 38$ registros graças a $M=19$) e base logarítmica superior ($\log_{19} B$), demandando teoricamente menos passadas de mesclagem. Todavia, a necessidade mandatória de redistribuir os registros da fita receptora $F_{20}$ de volta para as 19 fitas de entrada a cada passada introduz uma sobrecarga de varredura ($+2n$ operações de I/O por passada de redistribuição), podendo mitigar ou anular a vantagem algorítmica da maior aridade de intercalação;

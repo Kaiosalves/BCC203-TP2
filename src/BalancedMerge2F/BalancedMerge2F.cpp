@@ -4,12 +4,44 @@
 #include <array>
 #include <chrono>
 #include <fstream>
-#include <queue>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 #include "BinaryIO.hpp"
 #include "Common.hpp"
 #include "MethodRunner.hpp"
+
+namespace {
+
+template <typename T, typename LessFn>
+void SiftDown(std::vector<T> &heap, std::size_t idx, std::size_t heapSize,
+              LessFn &&less) {
+    while (true) {
+        const std::size_t left = 2 * idx + 1;
+        if (left >= heapSize) {
+            return;
+        }
+        std::size_t smallest = left;
+        if (left + 1 < heapSize && less(heap[left + 1], heap[left])) {
+            smallest = left + 1;
+        }
+        if (!less(heap[smallest], heap[idx])) {
+            return;
+        }
+        std::swap(heap[idx], heap[smallest]);
+        idx = smallest;
+    }
+}
+
+template <typename T, typename LessFn>
+void BuildMinHeap(std::vector<T> &heap, std::size_t heapSize, LessFn &&less) {
+    for (std::size_t i = heapSize / 2; i > 0; --i) {
+        SiftDown(heap, i - 1, heapSize, less);
+    }
+}
+
+}  // namespace
 
 uint64_t BalancedMerge2F::comparisonCount = 0;
 
@@ -92,64 +124,74 @@ void BalancedMerge2F::GenerateRuns(File &input) {
         t->BeginWrite();
     }
 
-    std::priority_queue<Slot, std::vector<Slot>, std::greater<Slot>> mem;
-
-    size_t currentTapeIdx = 0;
-
-    Item out;
-    uint32_t loaded = 0;
-    // enchendo memória com itens desmarcados
-    while (loaded < static_cast<uint32_t>(cfg_.memorySize) && readInput(out)) {
-        mem.push(Slot{out, false});
-        loaded++;
+    const std::size_t capacity = static_cast<std::size_t>(cfg_.memorySize);
+    if (capacity == 0) {
+        return;
     }
 
-    while (!mem.empty()) {
-        Slot minSlot = mem.top(); // menor item do heap
-        mem.pop();                // remove o item
-        // escreve na fita de saída atual
-        in_[currentTapeIdx]->WriteItem(minSlot.item);
+    // Heap de mínimo in-place de capacidade M: [0..activeSize-1] ativos e
+    // [activeSize..totalSize-1] congelados para o próximo bloco.
+    std::vector<Item> heap(capacity);
+    std::size_t totalSize = 0;
+    while (totalSize < capacity && readInput(heap[totalSize])) {
+        ++totalSize;
+    }
+    if (totalSize == 0) {
+        return;
+    }
 
-        Item nextItem; // le o próximo item
+    auto compareGrades = [](const Item &a, const Item &b) {
+        ++comparisonCount;
+        Metrics::RecordKeyComparison();
+        return a.grade < b.grade;
+    };
+
+    std::size_t activeSize = totalSize;
+    BuildMinHeap(heap, activeSize, compareGrades);
+
+    std::size_t currentTapeIdx = 0;
+
+    while (totalSize > 0) {
+        const Item minItem = heap[0];
+        in_[currentTapeIdx]->WriteItem(minItem);
+
+        Item nextItem{};
         if (readInput(nextItem)) {
-            bool marked = false;
-            comparisonCount++;
+            ++comparisonCount;
             Metrics::RecordKeyComparison();
-            // se o item atual for menor que o ultimo entra marcado no heap
-            if (nextItem < minSlot.item) {
-                marked = true;
+            if (nextItem.grade >= minItem.grade) {
+                heap[0] = nextItem;
+                SiftDown(heap, 0, activeSize, compareGrades);
+            } else {
+                // Congela na cauda reservada e reduz o tamanho ativo do heap.
+                heap[0] = heap[activeSize - 1];
+                heap[activeSize - 1] = nextItem;
+                --activeSize;
+                if (activeSize > 0) {
+                    SiftDown(heap, 0, activeSize, compareGrades);
+                }
             }
-            mem.push(Slot{nextItem, marked});
+        } else {
+            // Fim da entrada: remove do heap ativo preservando os congelados.
+            heap[0] = heap[activeSize - 1];
+            if (activeSize < totalSize) {
+                heap[activeSize - 1] = heap[totalSize - 1];
+            }
+            --activeSize;
+            --totalSize;
+            if (activeSize > 0) {
+                SiftDown(heap, 0, activeSize, compareGrades);
+            }
         }
-        // se nao leu mais itens a intercalação finaliza
-        if (mem.empty()) {
+
+        if (activeSize == 0) {
             in_[currentTapeIdx]->EndRun();
-            break;
-        }
-        // verifica se todos os itens sao marcados
-        std::vector<Slot> tempHeap;
-        bool allMarked = true;
-        while (!mem.empty()) {
-            Slot s = mem.top();
-            mem.pop();
-            if (!s.marked) {
-                allMarked = false;
+            if (totalSize == 0) {
+                break;
             }
-            tempHeap.push_back(s);
-        }
-        // se todos estiverem marcados inicia um novo ciclo
-        if (allMarked) {
-            // registra que o bloco acabou
-            in_[currentTapeIdx]->EndRun();
-            // desmarca todos os itens do heap
-            for (auto& s : tempHeap) {
-                s.marked = false;
-            }
-            // pula para a próxima fita
+            activeSize = totalSize;
+            BuildMinHeap(heap, activeSize, compareGrades);
             currentTapeIdx = (currentTapeIdx + 1) % in_.size();
-        }
-        for (const auto& s : tempHeap) {
-            mem.push(s);
         }
     }
 }
@@ -172,54 +214,47 @@ void BalancedMerge2F::MergePass() {
 }
 
 void BalancedMerge2F::MergeOneRun(Tape &out) {
-    //estrutura para armazenar os primeiros itens das fitas
     struct Head {
         Item item;
         Tape *tape;
-        bool active;
     };
 
-    std::vector<Head> heads;
-    //armazena o primeiro item das fitas em um vetor
+    std::vector<Head> heap;
+    heap.reserve(in_.size());
     for (Tape *t : in_) {
-        if (t->RunCount() > 0) {
-            if (t->StartNextRun()) {
-                Item item;
-                if (t->ReadItem(item)) {
-                    heads.push_back(Head{item, t, true});
-                }
+        if (t->RunCount() > 0 && t->StartNextRun()) {
+            Item item{};
+            if (t->ReadItem(item)) {
+                heap.push_back(Head{item, t});
             }
         }
     }
 
-    while (true) {
-        int minIdx = -1;
-        //encontra qual fita tem o menor item
-        for (size_t i = 0; i < heads.size(); i++) {
-            if (heads[i].active) {
-                if (minIdx == -1) {
-                    minIdx = i;
-                } else {
-                    comparisonCount++;
-                    Metrics::RecordKeyComparison();
-                    if (heads[i].item < heads[minIdx].item) {
-                        minIdx = i;
-                    }
-                }
-            }
-        }
-        //se nenhuma cabeca estiver ativa o run acabou
-        if (minIdx == -1) {
-            break;
-        }
-        //escreve o menor o item na fita de saida 
-        out.WriteItem(heads[minIdx].item);
-        // pega o proximo item da fita que o menor item foi retirada 
-        Item nextItem;
-        if (heads[minIdx].tape->ReadItem(nextItem)) {
-            heads[minIdx].item = nextItem;
+    if (heap.empty()) {
+        return;
+    }
+
+    auto compareHeads = [](const Head &a, const Head &b) {
+        ++comparisonCount;
+        Metrics::RecordKeyComparison();
+        return a.item.grade < b.item.grade;
+    };
+
+    std::size_t heapSize = heap.size();
+    BuildMinHeap(heap, heapSize, compareHeads);
+
+    while (heapSize > 0) {
+        out.WriteItem(heap[0].item);
+
+        Item nextItem{};
+        if (heap[0].tape->ReadItem(nextItem)) {
+            heap[0].item = nextItem;
+            SiftDown(heap, 0, heapSize, compareHeads);
         } else {
-            heads[minIdx].active = false;
+            heap[0] = heap[--heapSize];
+            if (heapSize > 0) {
+                SiftDown(heap, 0, heapSize, compareHeads);
+            }
         }
     }
 }

@@ -1,22 +1,33 @@
 #pragma once
 
+#include <cstddef>
 #include <vector>
-#include <algorithm>
-#include "Item.hpp"
+
 #include "Common.hpp"
+#include "Item.hpp"
 
 inline constexpr int TAMAREA = 10;
 
 class PivotBuffer {
-private:
+  private:
     std::vector<Item> items_;
-public:
-    void Insert(const Item& item){  
-        items_.push_back(item);
-        std::sort(items_.begin(), items_.end(), [](const Item& a, const Item& b) {
+
+  public:
+    // Mantém o vetor interno ordenado por busca binária, evitando reordenar
+    // todo o buffer a cada inserção.
+    void Insert(const Item &item) {
+        std::size_t lo = 0;
+        std::size_t hi = items_.size();
+        while (lo < hi) {
+            const std::size_t mid = lo + (hi - lo) / 2;
             Metrics::RecordKeyComparison();
-            return a.grade < b.grade;
-        });
+            if (items_[mid].grade < item.grade) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        items_.insert(items_.begin() + static_cast<std::ptrdiff_t>(lo), item);
     }
     Item MinRemove(){
         Item min = items_.front();
