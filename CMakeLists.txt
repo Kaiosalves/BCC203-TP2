@@ -46,6 +46,7 @@ set(SEARCH_SOURCES
     src/Common.cpp
     src/File.cpp
     src/Tape.cpp
+    src/BalancedMerge2F/BalancedMerge2F.cpp
     src/FPlus1/mergeFPlus1.cpp
     src/QuickSort/QuickSort.cpp
 )

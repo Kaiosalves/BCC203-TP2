@@ -310,6 +310,19 @@ std::array<Item, PAGE_SIZE> File::GetNextPage() {
     return page;
 }
 
+bool File::GetNextItem(Item &out) {
+    if (this->eof()) {
+        return false;
+    }
+
+    if (!this->file_.read(reinterpret_cast<char *>(&out), sizeof(Item))) {
+        return false;
+    }
+
+    this->itemsRead_++;
+    return true;
+}
+
 void File::Rewind() {
     if (!this->file_.is_open()) {
         this->ReopenStream();

@@ -30,6 +30,7 @@ class File {
     std::string ConvertBinaryToText(const std::string &outputPath = "") const;
 
     std::array<Item, PAGE_SIZE> GetNextPage();
+    bool GetNextItem(Item &out);
     void Rewind();
     void CloseStream();
     void ReopenStream();
@@ -37,7 +38,6 @@ class File {
     void SetRecordMetrics(bool enabled);
     void PrintContents();
     bool VerifySorted(bool print);
-
     std::string path() const;
     std::string binaryPath() const;
     std::string outputPath() const;

@@ -15,4 +15,22 @@ class Item {
          std::array<char, 50> city, std::array<char, 30> degree)
         : registrationNumber(registrationNumber), grade(grade), state(state),
           city(city), degree(degree) {}
+
+    bool operator<(const Item& outro) const {
+        if (grade != outro.grade) {
+            return grade < outro.grade;
+        }
+        return registrationNumber < outro.registrationNumber;
+    }
+
+    bool operator>(const Item& outro) const {
+        if (grade != outro.grade) {
+            return grade > outro.grade;
+        }
+        return registrationNumber > outro.registrationNumber;
+    }
+
+    bool operator==(const Item& outro) const {
+        return grade == outro.grade && registrationNumber == outro.registrationNumber;
+    }
 };
